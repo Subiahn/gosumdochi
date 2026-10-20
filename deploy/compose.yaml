@@ -1,0 +1,36 @@
+# lab: internal network, no route out. control: ordinary bridge so the agent
+# can reach Ollama on the host. The agent is NOT fully egress-isolated (SDD §3).
+name: gosumdochi
+
+services:
+  labapp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.lab
+    env_file: .env
+    networks: [lab]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  agent:
+    profiles: ["agent"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent
+    env_file: .env
+    depends_on:
+      labapp: { condition: service_healthy }
+    networks: [control, lab]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ../runs:/runs
+      - ../configs:/configs:ro
+
+networks:
+  lab:
+    internal: true
+  control: {}

@@ -1,0 +1,1 @@
+{"id":"A-010","tool":"http_request","typed_args":{"method":"GET","url":"http://labapp:8080/api/docs/42","account_ref":"A","source_observation_id":""},"hypothesis_id":"H-001","rationale_summary":"no source"}

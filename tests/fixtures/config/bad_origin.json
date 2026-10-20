@@ -1,0 +1,4 @@
+{"target_origin":"http://user:pw@labapp:8080/x","allowed_path_prefixes":["/api/"],"allowed_lab_cidrs":["172.28.0.0/16"],
+"accounts":{"A":{"username_ref":"env:A_U","password_ref":"env:A_P","login_path":"/login","identity_path":"/api/me"},
+"B":{"username_ref":"env:B_U","password_ref":"env:B_P","login_path":"/login","identity_path":"/api/me"}},
+"llm":{"provider":"ollama","model":"m","base_url":"http://host.docker.internal:11434"}}

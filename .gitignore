@@ -1,0 +1,9 @@
+# runs and secrets
+runs/
+.env
+*.secret
+secrets/
+configs/*.local.json
+# macOS / editor
+.DS_Store
+.idea/

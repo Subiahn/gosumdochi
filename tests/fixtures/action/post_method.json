@@ -1,0 +1,1 @@
+{"id":"A-009","tool":"http_request","typed_args":{"method":"POST","url":"http://labapp:8080/api/docs/42","account_ref":"A","source_observation_id":"O-003"},"hypothesis_id":"H-001","rationale_summary":"mutation"}

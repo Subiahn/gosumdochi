@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Planner action candidate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tool", "typed_args", "hypothesis_id", "rationale_summary"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "tool": { "const": "http_request" },
+    "typed_args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url", "account_ref", "source_observation_id"],
+      "properties": {
+        "method": { "const": "GET" },
+        "url": { "type": "string", "minLength": 1 },
+        "account_ref": { "enum": ["A", "B"] },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "source_observation_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hypothesis_id": { "type": "string", "minLength": 1 },
+    "rationale_summary": { "type": "string" }
+  }
+}

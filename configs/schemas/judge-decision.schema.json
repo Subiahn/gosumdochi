@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Judge decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "reason_code", "evidence_ids"],
+  "properties": {
+    "decision": { "enum": ["execute", "stop", "inconclusive"] },
+    "selected_action_id": { "type": "string", "minLength": 1 },
+    "reason_code": {
+      "enum": [
+        "missing_control_comparison", "needs_reproduction", "needs_identity_check",
+        "new_observation_needed", "hypothesis_verified", "exploration_exhausted",
+        "insufficient_evidence", "budget_low"
+      ]
+    },
+    "evidence_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "if": { "properties": { "decision": { "const": "execute" } } },
+  "then": { "required": ["selected_action_id"] },
+  "else": { "not": { "required": ["selected_action_id"] } }
+}

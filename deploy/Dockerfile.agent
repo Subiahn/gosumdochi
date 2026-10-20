@@ -1,0 +1,15 @@
+# Not buildable until cmd/gosumdochi exists (M2/M3). Kept here to fix the layout.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/gosumdochi ./cmd/gosumdochi
+COPY internal ./internal
+# The agent must not contain the practice target.
+RUN rm -rf ./internal/labapp && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/gosumdochi ./cmd/gosumdochi
+
+FROM alpine:3.22
+RUN adduser -D -u 10001 agent
+USER agent
+COPY --from=build /out/gosumdochi /usr/local/bin/gosumdochi
+ENTRYPOINT ["/usr/local/bin/gosumdochi"]

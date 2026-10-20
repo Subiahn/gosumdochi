@@ -1,0 +1,10 @@
+# Optional: browse the lab app from the host at http://127.0.0.1:8080.
+# Docker cannot publish ports from an internal-only network, so this attaches
+# labapp to an extra bridge network, which gives labapp (not the agent) a route out.
+services:
+  labapp:
+    networks: [lab, ui]
+    ports: ["127.0.0.1:8080:8080"]
+
+networks:
+  ui: {}

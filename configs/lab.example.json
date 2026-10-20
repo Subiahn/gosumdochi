@@ -1,0 +1,10 @@
+{
+  "target_origin": "http://labapp:8080",
+  "allowed_path_prefixes": ["/api/", "/login", "/me"],
+  "allowed_lab_cidrs": ["172.28.0.0/16"],
+  "accounts": {
+    "A": { "username_ref": "env:LAB_A_USER", "password_ref": "env:LAB_A_PASS", "login_path": "/login", "identity_path": "/api/me" },
+    "B": { "username_ref": "env:LAB_B_USER", "password_ref": "env:LAB_B_PASS", "login_path": "/login", "identity_path": "/api/me" }
+  },
+  "llm": { "provider": "ollama", "model": "TBD-verify-in-M4", "base_url": "http://host.docker.internal:11434" }
+}
