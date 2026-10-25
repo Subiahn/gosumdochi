@@ -71,6 +71,9 @@ type Observation struct {
 	// ExposedRefs are URLs/document IDs extracted deterministically from the
 	// response. Later actions may only target refs exposed by an observation.
 	ExposedRefs []string `json:"exposed_refs,omitempty"`
+	// ExtractionFailed marks an observation whose body could not be
+	// summarized; it may only serve as inconclusive evidence.
+	ExtractionFailed bool `json:"extraction_failed,omitempty"`
 }
 
 type Hypothesis struct {

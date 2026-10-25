@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0은 구현됨(go test 통과). M1은 Ollama 실연결 항목만 남았다. M2 이후는 미구현이다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
+M0·M2는 구현됨(go test -race 통과). M1은 Ollama 실연결 항목만 남았고 M4에서 처리한다. M3 이후는 미구현이다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
 
 ## M0. 계약 확정
 
@@ -24,12 +24,12 @@ M0은 구현됨(go test 통과). M1은 Ollama 실연결 항목만 남았다. M2 
 
 ## M2. 실행 경계와 증거
 
-- [ ] 계정별 session, HTTP transport, origin/path/CIDR 검사
-- [ ] 리다이렉트 금지, proxy 비활성화, 시간·크기 제한
-- [ ] 예산·취소, 마스킹, 증거 해시와 append 기록
-- [ ] Dialer 단계에서 DNS 해석·CIDR 검사·연결을 한 번에 수행 (rebinding 방지)
-- [ ] 재로그인은 요청 예산에 포함, 계정당 1회 제한
-- [ ] content-type별 결정론적 본문 추출기와 1KiB 관찰 요약
+- [x] 계정별 session, HTTP transport, origin/path/CIDR 검사
+- [x] 리다이렉트 금지, proxy 비활성화, 시간·크기 제한
+- [x] 예산·취소, 마스킹, 증거 해시와 append 기록
+- [x] Dialer 단계에서 DNS 해석·CIDR 검사·연결을 한 번에 수행 (rebinding 방지)
+- [x] 재로그인은 요청 예산에 포함, 계정당 1회 제한
+- [x] content-type별 결정론적 본문 추출기와 1KiB 관찰 요약
 
 완료 기준: AC-03~07, AC-10~11을 모델 없이 검증한다.
 

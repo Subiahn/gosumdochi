@@ -21,7 +21,7 @@ gosumdochi/
 │   ├── report/             # JSON 및 Markdown 보고서
 │   ├── config/             # 설정 검증, 비밀 참조
 │   ├── cli/                # 명령과 종료 코드
-│   └── labapp/             # 실습 앱: 고정 데이터·취약/수정 모드
+│   └── labapp/         # 실습 앱: 고정 데이터·취약/수정 모드
 ├── configs/
 │   ├── lab.example.json
 │   └── schemas/            # 설정·도구·판단 JSON Schema
