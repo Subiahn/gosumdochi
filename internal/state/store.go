@@ -21,6 +21,7 @@ type Store interface {
 type Snapshot struct {
 	model.Meta
 	Run           model.Run            `json:"run"`
+	Actions       []model.Action       `json:"actions"`
 	Observations  []model.Observation  `json:"observations"`
 	Hypotheses    []model.Hypothesis   `json:"hypotheses"`
 	Decisions     []model.Decision     `json:"decisions"`

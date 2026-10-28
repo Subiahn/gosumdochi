@@ -54,6 +54,7 @@ var allowedHeaders = map[string]bool{"Accept": true}
 type Policy struct {
 	scheme, host string // host includes the port when explicit
 	prefixes     []string
+	startPath    string
 	cidrs        []netip.Prefix
 }
 
@@ -62,7 +63,7 @@ func New(c config.Config) (*Policy, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Policy{scheme: u.Scheme, host: normalizeHost(u.Scheme, u.Host), prefixes: c.AllowedPathPrefixes}
+	p := &Policy{scheme: u.Scheme, host: normalizeHost(u.Scheme, u.Host), prefixes: c.AllowedPathPrefixes, startPath: c.StartPath}
 	for _, s := range c.AllowedLabCIDRs {
 		pf, err := netip.ParsePrefix(s)
 		if err != nil {
@@ -115,6 +116,9 @@ func (p *Policy) CheckURL(raw string) error {
 	}
 	if err := checkPath(u); err != nil {
 		return err
+	}
+	if p.startPath != "" && u.Path == p.startPath {
+		return nil
 	}
 	for _, pre := range p.prefixes {
 		if hasPathPrefix(u.Path, pre) {
@@ -191,6 +195,12 @@ func (b *Budget) Spend() error {
 	}
 	b.used++
 	return nil
+}
+
+func (b *Budget) Remaining() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.max - b.used
 }
 
 func (b *Budget) Used() int {

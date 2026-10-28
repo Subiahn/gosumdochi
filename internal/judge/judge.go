@@ -8,10 +8,12 @@ import (
 )
 
 type Input struct {
-	Candidates   []model.Action
-	Hypotheses   []model.Hypothesis
-	Observations []model.Observation
-	Remaining    model.Budgets
+	Candidates    []model.Action
+	Hypotheses    []model.Hypothesis
+	Observations  []model.Observation
+	Verifications []model.Verification
+	Remaining     model.Budgets
+	Feedback      string // validation error code of the previous attempt, on recovery
 }
 
 // Judge returns a Decision that must pass model.ValidateDecision. It cannot

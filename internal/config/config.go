@@ -28,7 +28,10 @@ type LLM struct {
 }
 
 type Config struct {
-	TargetOrigin        string                       `json:"target_origin"`
+	TargetOrigin string `json:"target_origin"`
+	// StartPath is the public entry page the agent first observes. It is
+	// allowed by exact match only, even if no prefix covers it. Default "/".
+	StartPath           string                       `json:"start_path,omitempty"`
 	AllowedPathPrefixes []string                     `json:"allowed_path_prefixes"`
 	AllowedLabCIDRs     []string                     `json:"allowed_lab_cidrs"`
 	Accounts            map[model.AccountRef]Account `json:"accounts"`
@@ -47,6 +50,9 @@ func Parse(data []byte) (Config, error) {
 		b := model.DefaultBudgets()
 		c.Budgets = &b
 	}
+	if c.StartPath == "" {
+		c.StartPath = "/"
+	}
 	if c.OutputDir == "" {
 		c.OutputDir = "runs"
 	}
@@ -63,6 +69,9 @@ func (c Config) Validate() error {
 	}
 	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("target_origin: must not contain path, query or fragment")
+	}
+	if c.StartPath != "" && (!strings.HasPrefix(c.StartPath, "/") || strings.ContainsAny(c.StartPath, "?#")) {
+		return fmt.Errorf("start_path: must be a path starting with /")
 	}
 	if len(c.AllowedPathPrefixes) == 0 {
 		return fmt.Errorf("allowed_path_prefixes: at least one required")

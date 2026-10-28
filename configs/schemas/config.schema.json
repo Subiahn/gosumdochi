@@ -6,6 +6,7 @@
   "required": ["target_origin", "allowed_path_prefixes", "allowed_lab_cidrs", "accounts", "llm"],
   "properties": {
     "target_origin": { "type": "string", "pattern": "^https?://[^/@]+$" },
+    "start_path": { "type": "string", "pattern": "^/[^?#]*$" },
     "allowed_path_prefixes": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^/" } },
     "allowed_lab_cidrs": { "type": "array", "minItems": 1, "items": { "type": "string" } },
     "accounts": {

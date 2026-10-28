@@ -62,6 +62,8 @@ type env struct {
 	port    string
 	host    string
 	nextAct int
+	cfg     config.Config
+	pol     *policy.Policy
 }
 
 type opts struct {
@@ -73,11 +75,14 @@ type opts struct {
 	resolver httptool.Resolver
 	cidr     string
 	timeoutS int
+	mode     labapp.Mode
+	budgets  func(*model.Budgets)
+	sameAcct bool // account B logs in with account A\'s credentials
 }
 
 func newEnv(t *testing.T, o opts) *env {
 	t.Helper()
-	app, err := labapp.New(labapp.Config{Mode: labapp.ModeVulnerable, Users: []labapp.Credential{
+	app, err := labapp.New(labapp.Config{Mode: modeOr(o.mode), Users: []labapp.Credential{
 		{UserID: "u-a", DisplayName: "Alice", Username: userA, Password: passA},
 		{UserID: "u-b", DisplayName: "Bob", Username: userB, Password: passB},
 	}})
@@ -106,6 +111,7 @@ func newEnv(t *testing.T, o opts) *env {
 	}
 	cfg := config.Config{
 		TargetOrigin:        "http://" + host + ":" + e.port,
+		StartPath:           "/",
 		AllowedPathPrefixes: []string{"/api/", "/login"},
 		AllowedLabCIDRs:     []string{o.cidr},
 		Accounts: map[model.AccountRef]config.Account{
@@ -125,6 +131,9 @@ func newEnv(t *testing.T, o opts) *env {
 	if o.timeoutS > 0 {
 		b.HTTPTimeoutSec = o.timeoutS
 	}
+	if o.budgets != nil {
+		o.budgets(&b)
+	}
 	cfg.Budgets = &b
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -135,6 +144,9 @@ func newEnv(t *testing.T, o opts) *env {
 		pb = passB
 	}
 	secrets := map[string]string{"env:UA": userA, "env:PA": passA, "env:UB": userB, "env:PB": pb}
+	if o.sameAcct {
+		secrets["env:UB"], secrets["env:PB"] = userA, passA
+	}
 	sm, err := session.NewManager(cfg, func(ref string) (string, error) { return secrets[ref], nil })
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +155,7 @@ func newEnv(t *testing.T, o opts) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.cfg, e.pol = cfg, pol
 	e.budget = policy.NewBudget(b.MaxHTTPRequests)
 	masker := evidence.NewMasker(sm.Secrets()...)
 	tool, err := httptool.New(cfg, pol, e.budget, sm, masker, httptool.Options{Resolver: o.resolver})
@@ -596,4 +609,11 @@ func TestEventsRecorded(t *testing.T) {
 	if !strings.Contains(string(b), "denied: out_of_origin") {
 		t.Fatalf("denial not recorded:\n%s", b)
 	}
+}
+
+func modeOr(m labapp.Mode) labapp.Mode {
+	if m == "" {
+		return labapp.ModeVulnerable
+	}
+	return m
 }

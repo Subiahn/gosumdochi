@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0·M2는 구현됨(go test -race 통과). M1은 Ollama 실연결 항목만 남았고 M4에서 처리한다. M3 이후는 미구현이다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
+M0·M2·M3은 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama 경로 확인만 남았다. M4는 Ollama 어댑터만 구현되었고 Planner/Judge 프롬프트 연결은 미구현이다. M5는 미구현이다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
 
 ## M0. 계약 확정
 
@@ -18,7 +18,7 @@ M0·M2는 구현됨(go test -race 통과). M1은 Ollama 실연결 항목만 남�
 - [x] 계정 A/B와 소유권·합성 marker seed
 - [x] 취약/수정 모드와 평가 정답 격리
 - [x] ARM64 Docker 빌드와 internal lab 네트워크
-- [ ] Ollama 호스트 연결은 inference 전용 경로로 검증 (경로는 대체 서버로 확인함; 이 Mac에 Ollama 미설치라 실제 Ollama 확인은 M4에서)
+- [ ] Ollama 호스트 연결은 inference 전용 경로로 검증 (경로는 대체 서버로 확인함; 호스트에서 qwen3:8b 어댑터 호출은 확인함; Docker agent 컨테이너에서 host.docker.internal 경로는 미확인)
 
 완료 기준: 수동 요청으로 취약 모드 교차 접근과 수정 모드 차단을 각각 확인한다.
 
@@ -35,17 +35,17 @@ M0·M2는 구현됨(go test -race 통과). M1은 Ollama 실연결 항목만 남�
 
 ## M3. 결정론적 에이전트 루프
 
-- [ ] fake Planner/Judge와 상태 머신
-- [ ] 후보 필터 → 판단 → 최종 정책 → 실행 흐름
-- [ ] 반복 방지와 schema 복구 한도
-- [ ] Verifier의 계정·소유권·marker·재조회 검증 (평가기 정답 미사용, B 정상 응답의 관찰값과 비교)
-- [ ] 재로그인 실패 시 AC-03 경로 검증
+- [x] fake Planner/Judge와 상태 머신
+- [x] 후보 필터 → 판단 → 최종 정책 → 실행 흐름
+- [x] 반복 방지와 schema 복구 한도
+- [x] Verifier의 계정·소유권·marker·재조회 검증 (평가기 정답 미사용, B 정상 응답의 관찰값과 비교)
+- [x] 재로그인 실패 시 AC-03 경로 검증
 
 완료 기준: AC-01~02, AC-08~09를 fixture로 통과한다.
 
 ## M4. Ollama와 판단 방식 연결
 
-- [ ] 정확한 모델/버전 선택, API 요청·응답 계약 확인
+- [x] 정확한 모델/버전 선택(qwen3:8b, digest는 ResolveModel로 run에 기록 예정), API 요청·응답 계약 확인(internal/llm/ollama)
 - [ ] 하나의 모델로 Planner/Judge 순차 호출
 - [ ] 컨텍스트 요약과 모델 호출 예산
 - [ ] 응답 실패·시간 초과·잘못된 JSON 처리

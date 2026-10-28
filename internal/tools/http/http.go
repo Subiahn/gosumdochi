@@ -214,6 +214,8 @@ func (t *Tool) get(ctx context.Context, s *session.Session, a model.Action) (too
 	for k, v := range a.TypedArgs.Headers { // policy allows Accept only
 		req.Header.Set(k, v)
 	}
+	// Reduce cache influence on comparison requests (SDD §7).
+	req.Header.Set("Cache-Control", "no-cache")
 	resp, code := t.send(s, req)
 	if code != "" {
 		return tools.Result{}, code

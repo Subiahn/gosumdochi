@@ -35,9 +35,11 @@ type Run struct {
 	ConfigDigest string         `json:"config_digest"`
 	ModelID      string         `json:"model_id"`
 	ModelOptions map[string]any `json:"model_options,omitempty"`
-	Status       RunStatus      `json:"status"`
-	StopReason   StopReason     `json:"stop_reason,omitempty"`
-	Budgets      Budgets        `json:"budgets"`
+	// Versions records the prompt/tool/rule contract versions in force (FR-12).
+	Versions   map[string]string `json:"versions,omitempty"`
+	Status     RunStatus         `json:"status"`
+	StopReason StopReason        `json:"stop_reason,omitempty"`
+	Budgets    Budgets           `json:"budgets"`
 }
 
 // HTTPArgs are the typed arguments of the http_request tool. The model never
@@ -65,6 +67,8 @@ type Observation struct {
 	Meta
 	ID           string       `json:"id"`
 	ActionID     string       `json:"action_id"`
+	AccountRef   AccountRef   `json:"account_ref,omitempty"`
+	URL          string       `json:"url,omitempty"` // requested URL
 	ResultStatus ResultStatus `json:"result_status"`
 	EvidenceIDs  []string     `json:"evidence_ids"`
 	Summary      string       `json:"summary"`
@@ -126,6 +130,9 @@ type Verification struct {
 	ComparisonIDs []string            `json:"comparison_ids"`
 	Outcome       VerificationOutcome `json:"outcome"`
 	RuleID        string              `json:"rule_id"`
+	// Reasons explains an outcome: what held (confirmed/rejected) or which
+	// required evidence is missing (inconclusive).
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 type Finding struct {

@@ -12,6 +12,9 @@ type Input struct {
 	Observations []model.Observation // already summarized
 	Hypotheses   []model.Hypothesis
 	Remaining    model.Budgets
+	// Feedback is the validation error code of the previous attempt in this
+	// cycle, set only on a recovery call.
+	Feedback string
 }
 
 type HypothesisProposal struct {

@@ -70,7 +70,7 @@ func (e *Executor) Run(ctx context.Context, a model.Action) (model.Observation, 
 func (e *Executor) record(ctx context.Context, a model.Action, st model.ResultStatus, note string, res *tools.Result) (model.Observation, error) {
 	obsID, evID := e.nextIDs(res != nil)
 	meta := model.Meta{SchemaVersion: model.SchemaVersion, RunID: e.RunID, Timestamp: e.now().UTC()}
-	obs := model.Observation{Meta: meta, ID: obsID, ActionID: a.ID, ResultStatus: st, EvidenceIDs: []string{}, Summary: note}
+	obs := model.Observation{Meta: meta, ID: obsID, ActionID: a.ID, AccountRef: a.TypedArgs.AccountRef, URL: a.TypedArgs.URL, ResultStatus: st, EvidenceIDs: []string{}, Summary: note}
 	if res != nil {
 		ev := evidence.Build(e.Masker, evidence.Input{
 			ID: evID, ActionID: a.ID, Account: a.TypedArgs.AccountRef,
