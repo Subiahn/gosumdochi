@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0·M2·M3은 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama 경로 확인만 남았다. M4는 Ollama 어댑터만 구현되었고 Planner/Judge 프롬프트 연결은 미구현이다. M5는 미구현이다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
+M0~M5는 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama 경로 확인만 남았다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
 
 ## M0. 계약 확정
 
@@ -45,19 +45,34 @@ M0·M2·M3은 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama �
 
 ## M4. Ollama와 판단 방식 연결
 
-- [x] 정확한 모델/버전 선택(qwen3:8b, digest는 ResolveModel로 run에 기록 예정), API 요청·응답 계약 확인(internal/llm/ollama)
-- [ ] 하나의 모델로 Planner/Judge 순차 호출
-- [ ] 컨텍스트 요약과 모델 호출 예산
-- [ ] 응답 실패·시간 초과·잘못된 JSON 처리
+- [x] 정확한 모델/버전 선택(qwen3:8b, ResolveModel이 name@digest를 run.model_id에 기록), API 요청·응답 계약 확인(internal/llm/ollama)
+- [x] 하나의 모델로 Planner/Judge 순차 호출 (internal/planner/ollama.go, internal/judge/ollama.go; JSON Schema로 구조화 출력, model.DecodeStrict로 재검증)
+- [x] 컨텍스트 요약과 모델 호출 예산 (최근 12개 Observation만 전달, Budgets.MaxModelCalls/MaxCycles/MaxHTTPRequests를 매 호출 prompt에 명시)
+- [x] 응답 실패·시간 초과·잘못된 JSON 처리 (agent.llmCtx가 LLMTimeoutSec로 호출별 데드라인 적용, MaxRecoveries=1 재시도 후 StopModelError)
 
 완료 기준: 실제 모델이 관찰에 따라 다음 행동을 바꾸고, 모든 결정이 기록된다.
 
 ## M5. 보고서와 반복 평가
 
-- [ ] JSON/Markdown 보고서, 근거 부족·한계 명시
-- [ ] 저장 기록에서 네트워크 없이 재생성
-- [ ] 취약/수정 모드 각 5회 평가
-- [ ] Mac peak 메모리·시간·호출 수 측정
-- [ ] README 실행 절차와 알려진 한계 작성
+- [x] JSON/Markdown 보고서, 근거 부족·한계 명시 (internal/report; cmd/gosumdochi의 run/report 하위 명령)
+- [x] 저장 기록에서 네트워크 없이 재생성 (state.ReadSnapshot + report.Build; tests/integration/m5_test.go로 AC-12 확인)
+- [x] 취약/수정 모드 각 5회 평가 (qwen3:8b, 2026-10-31, host 환경; README "실제 모델 평가 결과" 참고)
+- [x] Mac peak 메모리·시간·호출 수 측정 (agent 프로세스 peak 7.3~10.4 MiB; 시간은 배터리 Sleep Service 영향 가능 — README에 명시)
+- [x] README 실행 절차와 알려진 한계 작성
 
-완료 기준: AC-01~12와 spec의 실험 목표를 평가하고 결과를 기록한다. 미달이면 완료로 표시하지 않는다.
+평가 결과(최종): **취약 모드 5/5 confirmed**(목표 4/5 이상 달성), **수정 모드 5/5 정확히 기각**(false confirmed 0회, AC-02 충족). 초기 평가는 취약/수정 모드 모두 0/5로 실패했으나, 평가 과정에서 버그 3개를 찾아 고쳐 위 결과에 도달했다: (1) judge의 `selected_action_id` 조건부 필수를 Ollama 구조화 출력이 지키지 않던 문제, (2) planner에게 보내는 스키마의 `candidates.maxItems`가 실제 예산과 안 맞던 문제, (3) planner가 Verifier의 판단 사유(`Verification.Reasons`)를 아예 못 보고 있던 문제 — 이걸 전달한 것이 확정에 이른 결정적 수정이었다. 상세 경과는 README "실제 모델 평가 결과"에 기록.
+
+완료 기준: AC-01~12와 spec의 실험 목표를 평가하고 결과를 기록한다. 미달이면 완료로 표시하지 않는다. → 달성.
+
+## M6. 다중 규칙·탐색 (설계만, 미구현)
+
+docs/SDD.md §14에 설계를 적어 두었다. 코드는 아직 없다. M5 완료 후 순서대로 진행한다. 대상은 계속 사용자 소유 labapp이며 범위 밖 항목(SDD §1)은 유지한다.
+
+- [ ] labapp에 관리자 역할·전용 엔드포인트, 무인증 엔드포인트, 디버그 헤더 분기, 반사 파라미터 추가 (SDD §14.4)
+- [ ] Verifier 규칙 `unauth-access-v1` 추가
+- [ ] Verifier 규칙 `vertical-privesc-v1` 추가
+- [ ] Verifier 규칙 `passive-exposure-v1` 추가 (Finding에 severity 필드 추가 포함)
+- [ ] internal/crawl: 관찰에서 링크·form 수집, 중복 제거, Planner가 탐색 행동 제안
+- [ ] reflected-input-v1: Action/Policy의 파라미터 값 검사 계약을 ADR로 먼저 결정한 뒤 구현
+
+완료 기준: 새 규칙마다 fake Planner/Judge로 독립 fixture/통합 테스트 통과, 그 다음 실제 모델로 재확인.

@@ -11,7 +11,13 @@ type Input struct {
 	Goal         string
 	Observations []model.Observation // already summarized
 	Hypotheses   []model.Hypothesis
-	Remaining    model.Budgets
+	// Verifications are the Verifier's own, code-computed findings so far
+	// (outcome and Reasons). The Verifier already names exactly what
+	// evidence is missing (e.g. "no control: reader's own document
+	// response"); handing that to the Planner beats re-deriving the same
+	// gap from free-text prose rules alone.
+	Verifications []model.Verification
+	Remaining     model.Budgets
 	// Feedback is the validation error code of the previous attempt in this
 	// cycle, set only on a recovery call.
 	Feedback string

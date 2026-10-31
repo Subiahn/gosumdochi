@@ -44,13 +44,16 @@ type Deps struct {
 	RunID   string
 	Goal    string
 	ModelID string
-	Planner planner.Planner
-	Judge   judge.Judge
-	Exec    *executor.Executor
-	Store   state.Store
-	Policy  *policy.Policy
-	Budget  *policy.Budget // HTTP request budget shared with the tool
-	Now     func() time.Time
+	// ModelOptions is recorded in run metadata as given (FR-12); it is never
+	// sent anywhere by the agent itself.
+	ModelOptions map[string]any
+	Planner      planner.Planner
+	Judge        judge.Judge
+	Exec         *executor.Executor
+	Store        state.Store
+	Policy       *policy.Policy
+	Budget       *policy.Budget // HTTP request budget shared with the tool
+	Now          func() time.Time
 }
 
 type Agent struct {
@@ -109,8 +112,11 @@ func (a *Agent) Run(parent context.Context) (snap state.Snapshot, err error) {
 
 	a.run = model.Run{
 		Meta: a.meta(), ID: a.d.RunID, Goal: a.d.Goal, ConfigDigest: a.d.Config.Digest(),
-		ModelID: a.d.ModelID, Status: model.RunRunning, Budgets: b,
-		Versions: map[string]string{"tool_contract": "http_request/1", "decision_contract": "1", "verifier_rule": verifier.RuleID},
+		ModelID: a.d.ModelID, ModelOptions: a.d.ModelOptions, Status: model.RunRunning, Budgets: b,
+		Versions: map[string]string{
+			"tool_contract": "http_request/1", "decision_contract": "1", "verifier_rule": verifier.RuleID,
+			"planner_output_schema": "1", "judge_decision_schema": "1",
+		},
 	}
 	a.snap = state.Snapshot{Meta: a.meta()}
 	a.addHypothesis(PrimaryHypothesis, primaryClaim)
@@ -145,7 +151,8 @@ func (a *Agent) finish(parent context.Context, st stop) (state.Snapshot, error) 
 			h.Status = model.HypInconclusive
 		}
 	}
-	a.run.StopReason = st.reason
+	a.run.StopReason, a.run.StopNote = st.reason, st.note
+	a.run.Cycles, a.run.ModelCalls, a.run.HTTPRequests = a.cycle, a.models, a.d.Budget.Used()
 	switch st.reason {
 	case model.StopGoalVerified, model.StopExplorationExhaust:
 		a.run.Status = model.RunCompleted
@@ -282,6 +289,21 @@ func (a *Agent) recent() []model.Observation {
 	return append([]model.Observation(nil), o...)
 }
 
+// llmCtx bounds one model call at Budgets.LLMTimeoutSec, in addition to the
+// run's overall deadline already carried by ctx.
+func (a *Agent) llmCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, time.Duration(a.run.Budgets.LLMTimeoutSec)*time.Second)
+}
+
+func truncateErr(err error) string {
+	s := err.Error()
+	const max = 300
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
+}
+
 func (a *Agent) spendModel() *stop {
 	if a.models >= a.run.Budgets.MaxModelCalls {
 		return &stop{model.StopBudgetExhausted, "model call budget"}
@@ -296,16 +318,19 @@ func (a *Agent) callPlanner(ctx context.Context) ([]model.Action, *stop) {
 		if st := a.spendModel(); st != nil {
 			return nil, st
 		}
-		out, err := a.d.Planner.Plan(ctx, planner.Input{
+		callCtx, cancel := a.llmCtx(ctx)
+		out, err := a.d.Planner.Plan(callCtx, planner.Input{
 			Goal: a.d.Goal, Observations: a.recent(), Hypotheses: append([]model.Hypothesis(nil), a.snap.Hypotheses...),
-			Remaining: a.remaining(), Feedback: feedback,
+			Verifications: append([]model.Verification(nil), a.snap.Verifications...),
+			Remaining:     a.remaining(), Feedback: feedback,
 		})
+		cancel()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, &stop{model.StopBudgetExhausted, "interrupted during planner call"}
 			}
 			feedback = "planner_error"
-			a.event(ctx, "planner_error", map[string]any{"cycle": a.cycle, "attempt": attempt})
+			a.event(ctx, "planner_error", map[string]any{"cycle": a.cycle, "attempt": attempt, "error": truncateErr(err)})
 			continue
 		}
 		a.registerProposals(ctx, out.Proposals)
@@ -417,16 +442,18 @@ func (a *Agent) callJudge(ctx context.Context, cands []model.Action) (model.Deci
 		if st := a.spendModel(); st != nil {
 			return model.Decision{}, st
 		}
-		d, err := a.d.Judge.Judge(ctx, judge.Input{
+		callCtx, cancel := a.llmCtx(ctx)
+		d, err := a.d.Judge.Judge(callCtx, judge.Input{
 			Candidates: cands, Hypotheses: append([]model.Hypothesis(nil), a.snap.Hypotheses...), Observations: a.recent(),
 			Verifications: append([]model.Verification(nil), a.snap.Verifications...), Remaining: a.remaining(), Feedback: feedback,
 		})
+		cancel()
 		if err != nil {
 			if ctx.Err() != nil {
 				return d, &stop{model.StopBudgetExhausted, "interrupted during judge call"}
 			}
 			feedback = "judge_error"
-			a.event(ctx, "judge_error", map[string]any{"cycle": a.cycle, "attempt": attempt})
+			a.event(ctx, "judge_error", map[string]any{"cycle": a.cycle, "attempt": attempt, "error": truncateErr(err)})
 			continue
 		}
 		verr := model.ValidateDecision(d, refs)

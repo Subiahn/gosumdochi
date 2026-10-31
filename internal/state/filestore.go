@@ -111,7 +111,14 @@ func (s *FileStore) SaveState(_ context.Context, snap Snapshot) error {
 }
 
 func (s *FileStore) LoadState(_ context.Context) (Snapshot, error) {
-	b, err := os.ReadFile(filepath.Join(s.dir, "state.json"))
+	return ReadSnapshot(s.dir)
+}
+
+// ReadSnapshot reads state.json directly, with no Store opened for writing.
+// It is what "regenerate the report without network" and without a live run
+// reduce to (AC-12): report and plan tooling use this, never FileStore.
+func ReadSnapshot(dir string) (Snapshot, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "state.json"))
 	if err != nil {
 		return Snapshot{}, err
 	}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Planner output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidates", "hypothesis_proposals"],
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "typed_args", "hypothesis_id", "rationale_summary"],
+        "properties": {
+          "tool": { "const": "http_request" },
+          "typed_args": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["method", "url", "account_ref", "source_observation_id"],
+            "properties": {
+              "method": { "const": "GET" },
+              "url": { "type": "string", "minLength": 1 },
+              "account_ref": { "enum": ["A", "B"] },
+              "source_observation_id": { "type": "string", "minLength": 1 }
+            }
+          },
+          "hypothesis_id": { "type": "string", "minLength": 1 },
+          "rationale_summary": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "hypothesis_proposals": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "claim"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "claim": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

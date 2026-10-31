@@ -39,7 +39,13 @@ type Run struct {
 	Versions   map[string]string `json:"versions,omitempty"`
 	Status     RunStatus         `json:"status"`
 	StopReason StopReason        `json:"stop_reason,omitempty"`
+	StopNote   string            `json:"stop_note,omitempty"`
 	Budgets    Budgets           `json:"budgets"`
+	// Counters are filled in when the run ends, so a report can be
+	// regenerated from state.json alone, without replaying events.jsonl.
+	Cycles       int `json:"cycles"`
+	ModelCalls   int `json:"model_calls"`
+	HTTPRequests int `json:"http_requests"`
 }
 
 // HTTPArgs are the typed arguments of the http_request tool. The model never

@@ -183,3 +183,54 @@ Verifier는 에이전트가 실행 중 수집한 Evidence만 입력으로 쓴다
 
 구현 전에 결정할 항목: 실제 모델 태그/버전, Ollama API 호환 방식, Docker에서 호스트 추론 서버 접속 설정, macOS 자원 할당값. 실제 Jev 연동은 API·배포 방식·라이선스 확인 이후다.
 후속 확장: SQLite state store, 브라우저 도구, 다른 검증 시나리오, 추론 adapter 교체, Judge 독립 모델 비교. 각 확장은 기존 수용 테스트를 유지한 상태로 추가한다.
+
+## 14. v0.2 방향: 다중 규칙·탐색 (AI DAST)
+
+v0.1은 검증 규칙이 doc-cross-read-v1 하나뿐이고 대상도 고정된 몇 개 경로였다. 이 프로젝트의 목표(README)는 "웹 애플리케이션 보안 검증 도구"이므로, 다음 확장 없이는 인가 비교 테스트 한 종류에 머문다. 대상은 계속 사용자 소유의 로컬 labapp이며, 외부 시스템이나 제3자 자산은 범위에 포함하지 않는다.
+
+### 14.1 탐색(Crawl)
+
+Planner가 다음 행동을 제안하려면 먼저 앱의 표면을 알아야 한다. 현재는 start_path 응답 하나가 유일한 입구다.
+
+- 새 컴포넌트 `internal/crawl`: 관찰된 HTML/JSON 응답에서 이미 `extract`가 뽑아낸 링크·form 액션을 큐에 쌓고, 정책이 허용하는 origin·경로 범위 안에서만 방문한다. 방문 여부는 정규화된 URL+method+account_ref로 중복 제거한다(§8 재실행 규칙과 동일한 키 사용).
+- 파라미터 수집: form의 input name, 쿼리 문자열 키를 Observation에 `discovered_params`로 기록한다(응답에서 결정론적으로 뽑은 값만; 모델이 만든 파라미터명은 쓰지 않음).
+- 탐색도 Executor를 거치는 일반 Action이다. 새 도구가 아니라 Planner가 세울 수 있는 행동 후보의 한 유형(method=GET, 목적이 탐색)으로 다룬다. 예산(§8)과 Policy(§3)는 그대로 적용된다.
+- 완료 기준: 탐색만으로 새 URL이 나오지 않으면 해당 가설은 종료하고, 발견된 전체 경로 집합을 run 메타데이터에 남긴다.
+
+### 14.2 검증 규칙 확장
+
+Verifier(§10)의 `doc-cross-read-v1`과 같은 자리에, 서로 독립된 규칙을 추가한다. 각 규칙은 자신의 `rule_id`를 가지고, 자신의 confirmed/rejected/inconclusive 조건과 필요한 Evidence 종류를 정의한다. 하나의 Observation이 여러 규칙의 입력이 될 수 있다.
+
+| 규칙 | confirmed 조건 | 주의 |
+| --- | --- | --- |
+| `unauth-access-v1` (비인증 접근) | 로그인 세션 없이 보낸 요청이 인증 상태에서만 보이던 데이터(§7 identity_path 또는 문서 API)와 동일한 본문을 반환 | 쿠키·Authorization 헤더를 모두 제거한 별도 요청이 필요하다(§9 세션 격리 유지, 이 요청은 어떤 계정의 세션도 쓰지 않는 세 번째 상태로 다룸) |
+| `vertical-privesc-v1` (수직 권한 상승) | 일반 계정 세션으로 관리자 전용 경로·액션에 접근해 관리자만 보이는 데이터나 응답 코드를 받음 | labapp에 관리자 역할과 전용 엔드포인트를 먼저 추가해야 함(§14.4). 일반 계정과 관리자 계정의 응답을 대조 |
+| `passive-exposure-v1` (수동 점검: 헤더·쿠키·정보노출) | 응답 헤더(Server 버전, 캐시 지시자 부재 등)나 본문에 디버그 스택트레이스·백업 파일·내부 경로가 결정론적 패턴(§6 추출기 화이트리스트 확장)으로 나타남 | 능동 요청 없이 기존 관찰만으로 판단 가능하므로 예산 부담이 가장 적다. 자체 판단 문구는 confirmed가 아니라 대부분 informational(새 Finding 심각도 등급 필요, §6 Finding에 severity 필드 추가 검토) |
+| `reflected-input-v1` (반사형 XSS/SQLi) | Planner가 제안한 입력이 Policy가 승인한 파라미터 위치(§14.1에서 수집한 discovered_params)에 들어가고, 응답에 특정 마커가 변형 없이 반사되거나(XSS) DB 오류 패턴이 나타남(SQLi 신호) | v0.1의 "model은 URL/ID를 못 만든다" 원칙과 충돌하므로 별도 규칙 필요: Policy가 **파라미터 값**을 승인 목록(고정 마커 세트, 예: 길이 제한 있는 영숫자+HTML 메타문자 하나)으로 제한하고, Action.typed_args에 `param_value` 같은 새 필드를 추가해 Policy가 가치 자체를 검사한다. method는 여전히 GET만, 저장형/2차 공격은 v0.2에도 범위 밖 |
+
+반사형 XSS/SQLi는 "모델이 만든 URL을 거부한다"는 현재 설계의 핵심 방어선을 변경해야 하므로, 다른 세 규칙보다 설계 검토가 더 필요하다. 구현 순서는 비인증 접근 → 수직 권한 상승 → 수동 점검 → 반사형 입력 순을 권장한다(앞 세 개는 기존 typed_args 구조를 바꾸지 않고 추가 가능).
+
+### 14.3 Finding 심각도와 다중 규칙 보고
+
+- Finding(§6)에 `severity`(critical/high/medium/low/info)와 `rule_id`를 추가한다. severity는 규칙별 고정 매핑으로 코드가 정하며 모델이 매기지 않는다.
+- report(§11)는 규칙별로 섹션을 나눠, 어떤 규칙이 몇 번 confirmed/rejected/inconclusive였는지 요약한다.
+
+### 14.4 labapp 확장
+
+새 규칙을 검증하려면 실습 앱에 해당 취약점 시나리오가 필요하다(§10과 동일하게 vulnerable/fixed 모드로 토글).
+
+- 관리자 역할 1개, 관리자 전용 엔드포인트(예: `GET /api/admin/users`) 추가. fixed 모드에서는 역할 검사, vulnerable 모드에서는 세션만 검사.
+- 세션 없이도 응답하는 엔드포인트를 vulnerable 모드에 1개 추가(예: 인증 검사를 빠뜨린 `/api/docs/export`).
+- 응답 헤더에서 vulnerable 모드일 때만 디버그 헤더(`X-Debug-Backend` 등)나 info 노출 문자열을 넣는 분기 추가.
+- 쿼리 파라미터 하나(예: `/api/search?q=`)를 추가하고, vulnerable 모드에서만 입력을 그대로 반사하거나 가짜 DB 오류 문자열을 반환.
+- 평가기 전용 Answer 구조체(labapp.go)에 각 시나리오의 정답 필드를 추가한다. agent와 Verifier는 여전히 이를 읽지 않는다.
+
+### 14.5 적용 순서
+
+1. labapp에 시나리오 추가 (§14.4), 기존 doc-cross-read 시나리오와 평가기 분리 유지.
+2. Verifier에 `unauth-access-v1`, `vertical-privesc-v1`, `passive-exposure-v1` 추가. 각각 독립 fixture/통합 테스트로 AC를 새로 정의.
+3. `internal/crawl` 추가, Planner가 탐색 행동도 제안하도록 확장.
+4. `reflected-input-v1`은 Action/Policy 계약 변경을 포함하므로 별도 ADR로 결정한 뒤 진행.
+5. 각 단계는 fake Planner/Judge로 모델 없이 결정론적으로 먼저 통과시킨 뒤, M4의 Ollama 연결로 넘어간다(§12 원칙 유지).
+
+이 확장 전체는 사용자 소유의 로컬 labapp만을 대상으로 하며, 범위 밖 항목(§1)은 v0.2에서도 그대로 유지한다.

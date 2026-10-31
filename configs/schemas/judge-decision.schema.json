@@ -3,10 +3,13 @@
   "title": "Judge decision v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["decision", "reason_code", "evidence_ids"],
+  "required": ["decision", "selected_action_id", "reason_code", "evidence_ids"],
   "properties": {
     "decision": { "enum": ["execute", "stop", "inconclusive"] },
-    "selected_action_id": { "type": "string", "minLength": 1 },
+    "selected_action_id": {
+      "type": "string",
+      "description": "A candidate id when decision is \"execute\"; the empty string otherwise. Always present: structured-output grammars built from JSON Schema do not reliably enforce the if/then conditional this field used to carry, so it is now an unconditionally required field instead, with model.ValidateDecision (Go) still rejecting a non-empty value outside \"execute\"."
+    },
     "reason_code": {
       "enum": [
         "missing_control_comparison", "needs_reproduction", "needs_identity_check",
@@ -15,8 +18,5 @@
       ]
     },
     "evidence_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
-  },
-  "if": { "properties": { "decision": { "const": "execute" } } },
-  "then": { "required": ["selected_action_id"] },
-  "else": { "not": { "required": ["selected_action_id"] } }
+  }
 }
