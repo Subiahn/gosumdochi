@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0~M5, M6a 전부 구현 및 완료됨(go test -race 통과). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6a의 실제 모델 재확인과 M6b(docs/SDD.md §14.6~14.7, 설계만)다.
+M0~M5, M6a 전부 구현 및 완료됨(go test -race 통과, 실제 qwen3:8b 재확인 포함). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6b(docs/SDD.md §14.6~14.7, 설계만)다.
 
 ## M0. 계약 확정
 
@@ -76,7 +76,9 @@ docs/SDD.md §14.1~14.4 설계 그대로 구현. 기존 typed_args·Action/Polic
 
 구현 중 설계와 달라진 점: unauth-access-v1의 baseline/comparison은 URL이 아니라 **marker로 상관**시킨다 — 무인증 미러(`/api/public/docs/{id}`)는 인증 원본(`/api/docs/{id}`)과 의도적으로 다른 경로라, URL을 키로 쓰면 절대 매칭되지 않는다(처음 구현에서 실제로 걸렸던 버그).
 
-완료 기준: 세 규칙 각각 독립 fixture(internal/verifier) 및 통합 테스트(tests/integration/m6a_test.go)로 confirmed/rejected 경로 확인함, fake Planner/Judge로. 실제 qwen3:8b로 재확인은 아직 안 함(다음 단계로 남김).
+완료 기준: 세 규칙 각각 독립 fixture(internal/verifier) 및 통합 테스트(tests/integration/m6a_test.go)로 confirmed/rejected 경로 확인함, fake Planner/Judge로. 실제 qwen3:8b로도 확인함(tests/integration/m6a_live_test.go, 2026-11-01).
+
+실제 모델 평가 결과: 수정 모드는 3회 재현 모두 안전 — 네 가설(H-1, H-PRIVESC, H-UNAUTH, H-PASSIVE) 전부 false confirm 0건. 취약 모드는 3회 재현 모두 같은 패턴: `unauth-access-v1`(code-driven, 모델 스킬 불필요)과 `passive-exposure-v1`(디버그 헤더가 항상 응답에 있어 모델 스킬 불필요) 은 매번 confirmed. `doc-cross-read-v1`(H-1)과 `vertical-privesc-v1`은 3회 모두 inconclusive — qwen3:8b가 네 가설을 동시에 쫓는 이 멀티룰 목표 문구 하에서는 cycle budget(15) 내에 교차계정 문서 읽기나 admin API의 B계정 비교 조회까지 도달하지 못했다. M4/M5 단독 doc-cross-read-v1 평가(5/5 confirmed)와 달리, 여기서는 run이 `StopModelError`("planner output invalid after recovery")로 조기 종료되는 경우가 매번 있었다 — 원인은 인프라 오류가 아니라, 모델이 이미 2개 가설을 확인한 뒤 더 이상 생산적인 새 행동을 제안하지 못하고 invalid/repeated 후보만 반복 제출하면서 `MaxRecoveries=1` 소진으로 안전하게 멈추는 것으로 확인됨(cycle 5~9 사이, 3회 모두 재현). 안전성(수정 모드 false confirm 0건)은 핵심 속성이므로 충족; H-1/H-PRIVESC의 미확인은 모델 역량·탐색 순서의 한계로 기록하고 이후 프롬프트 개선 과제로 남긴다.
 
 ## M6b. 탐색·반사형 입력 (설계 방향만, 미구현)
 
