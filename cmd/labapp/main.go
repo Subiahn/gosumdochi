@@ -30,7 +30,7 @@ func main() {
 		Seed:   os.Getenv("LAB_SEED"),
 		DBPath: os.Getenv("LAB_DB"),
 		Users: []labapp.Credential{
-			{UserID: "u-a", DisplayName: "Alice", Username: need("LAB_A_USER"), Password: need("LAB_A_PASS")},
+			{UserID: "u-a", DisplayName: "Alice", Username: need("LAB_A_USER"), Password: need("LAB_A_PASS"), Role: labapp.RoleAdmin},
 			{UserID: "u-b", DisplayName: "Bob", Username: need("LAB_B_USER"), Password: need("LAB_B_PASS")},
 		},
 	})

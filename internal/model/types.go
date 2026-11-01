@@ -141,12 +141,32 @@ type Verification struct {
 	Reasons []string `json:"reasons,omitempty"`
 }
 
+type Severity string
+
+const (
+	SeverityCritical Severity = "critical"
+	SeverityHigh     Severity = "high"
+	SeverityMedium   Severity = "medium"
+	SeverityLow      Severity = "low"
+	SeverityInfo     Severity = "info"
+)
+
+// SeverityForRule is the fixed rule_id -> severity mapping (SDD §14.2). Code
+// decides this; the model never assigns a severity.
+var SeverityForRule = map[string]Severity{
+	"doc-cross-read-v1":   SeverityHigh,
+	"unauth-access-v1":    SeverityHigh,
+	"vertical-privesc-v1": SeverityCritical,
+	"passive-exposure-v1": SeverityInfo,
+}
+
 type Finding struct {
 	Meta
 	ID             string   `json:"id"`
 	HypothesisID   string   `json:"hypothesis_id"`
 	Title          string   `json:"title"`
 	Impact         string   `json:"impact"`
+	Severity       Severity `json:"severity"`
 	VerificationID string   `json:"verification_id"`
 	EvidenceIDs    []string `json:"evidence_ids"`
 	Limitations    []string `json:"limitations"`

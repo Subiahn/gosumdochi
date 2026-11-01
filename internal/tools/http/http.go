@@ -35,6 +35,7 @@ type Tool struct {
 	sessions *session.Manager
 	masker   *evidence.Masker
 	client   map[model.AccountRef]*nethttp.Client
+	anon     *nethttp.Client // no jar, no login: unauth-access-v1 only
 	target   *url.URL
 	maxBody  int
 }
@@ -75,6 +76,10 @@ func New(cfg config.Config, p *policy.Policy, b *policy.Budget, sm *session.Mana
 			// Redirects are returned to the caller as plain 3xx responses.
 			CheckRedirect: func(*nethttp.Request, []*nethttp.Request) error { return nethttp.ErrUseLastResponse },
 		}
+	}
+	t.anon = &nethttp.Client{
+		Transport: tr, Jar: nil, Timeout: timeout, // no cookies, ever
+		CheckRedirect: func(*nethttp.Request, []*nethttp.Request) error { return nethttp.ErrUseLastResponse },
 	}
 	return t, nil
 }
@@ -127,6 +132,13 @@ func (t *Tool) Execute(ctx context.Context, a model.Action) (tools.Result, error
 
 func (t *Tool) execute(ctx context.Context, a model.Action) tools.Result {
 	ref := a.TypedArgs.AccountRef
+	if ref == model.AccountNone {
+		res, code := t.getAnonymous(ctx, a.TypedArgs.URL)
+		if code != "" {
+			return failed(code)
+		}
+		return res
+	}
 	s, ok := t.sessions.Get(ref)
 	if !ok {
 		return failed(tools.ErrLoginFailed)
@@ -139,7 +151,7 @@ func (t *Tool) execute(ctx context.Context, a model.Action) tools.Result {
 			return failed(code)
 		}
 	}
-	res, code := t.get(ctx, s, a)
+	res, code := t.get(ctx, t.client[s.Account], a)
 	if code != "" {
 		return failed(code)
 	}
@@ -154,11 +166,17 @@ func (t *Tool) execute(ctx context.Context, a model.Action) tools.Result {
 	if code := t.login(ctx, s); code != "" {
 		return failed(code)
 	}
-	res, code = t.get(ctx, s, a)
+	res, code = t.get(ctx, t.client[s.Account], a)
 	if code != "" {
 		return failed(code)
 	}
 	return res
+}
+
+// getAnonymous is unauth-access-v1's only entry point: a GET with no cookies
+// and no login attempt, over the same policy-protected transport.
+func (t *Tool) getAnonymous(ctx context.Context, rawURL string) (tools.Result, string) {
+	return t.get(ctx, t.anon, model.Action{TypedArgs: model.HTTPArgs{Method: "GET", URL: rawURL, AccountRef: model.AccountNone}})
 }
 
 func failed(code string) tools.Result {
@@ -186,7 +204,7 @@ func (t *Tool) login(ctx context.Context, s *session.Session) string {
 		return tools.ErrLoginFailed
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, code := t.send(s, req)
+	resp, code := t.send(t.client[s.Account], req)
 	if code != "" {
 		switch code {
 		case tools.ErrCanceled, tools.ErrBudgetExhausted, tools.ErrDeniedAddress:
@@ -206,7 +224,7 @@ func (t *Tool) login(ctx context.Context, s *session.Session) string {
 	return ""
 }
 
-func (t *Tool) get(ctx context.Context, s *session.Session, a model.Action) (tools.Result, string) {
+func (t *Tool) get(ctx context.Context, c *nethttp.Client, a model.Action) (tools.Result, string) {
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, a.TypedArgs.URL, nil)
 	if err != nil {
 		return tools.Result{}, tools.ErrNetwork
@@ -216,7 +234,7 @@ func (t *Tool) get(ctx context.Context, s *session.Session, a model.Action) (too
 	}
 	// Reduce cache influence on comparison requests (SDD §7).
 	req.Header.Set("Cache-Control", "no-cache")
-	resp, code := t.send(s, req)
+	resp, code := t.send(c, req)
 	if code != "" {
 		return tools.Result{}, code
 	}
@@ -247,14 +265,14 @@ func contentLength(resp *nethttp.Response) int64 {
 }
 
 // send spends budget immediately before the request leaves.
-func (t *Tool) send(s *session.Session, req *nethttp.Request) (*nethttp.Response, string) {
+func (t *Tool) send(c *nethttp.Client, req *nethttp.Request) (*nethttp.Response, string) {
 	if err := req.Context().Err(); err != nil {
 		return nil, tools.ErrCanceled
 	}
 	if err := t.budget.Spend(); err != nil {
 		return nil, tools.ErrBudgetExhausted
 	}
-	resp, err := t.client[s.Account].Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, classify(req.Context(), err)
 	}

@@ -13,7 +13,7 @@ import (
 func newServer(t *testing.T, mode Mode) (*httptest.Server, *App) {
 	t.Helper()
 	app, err := New(Config{Mode: mode, Users: []Credential{
-		{UserID: "u-a", DisplayName: "Alice", Username: "alice-login", Password: "pw-a"},
+		{UserID: "u-a", DisplayName: "Alice", Username: "alice-login", Password: "pw-a", Role: RoleAdmin},
 		{UserID: "u-b", DisplayName: "Bob", Username: "bob-login", Password: "pw-b"},
 	}})
 	if err != nil {
@@ -187,5 +187,82 @@ func TestDeterministicSeed(t *testing.T) {
 func TestNewRejectsBadMode(t *testing.T) {
 	if _, err := New(Config{Mode: "weird"}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAdminUsersScenario(t *testing.T) {
+	for _, mode := range []Mode{ModeVulnerable, ModeFixed} {
+		srv, _ := newServer(t, mode)
+		admin, regular := client(), client()
+		login(t, admin, srv.URL, "alice-login", "pw-a")
+		login(t, regular, srv.URL, "bob-login", "pw-b")
+
+		resp, err := admin.Get(srv.URL + "/api/admin/users")
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("admin: %v %v", err, resp)
+		}
+		resp.Body.Close()
+
+		resp, err = regular.Get(srv.URL + "/api/admin/users")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		want := http.StatusOK
+		if mode == ModeFixed {
+			want = http.StatusForbidden
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("mode %s: regular user got %d, want %d", mode, resp.StatusCode, want)
+		}
+
+		// No session at all must never pass, in either mode.
+		if resp, err := http.Get(srv.URL + "/api/admin/users"); err != nil || resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("anonymous admin access: %v %v", err, resp)
+		}
+	}
+}
+
+func TestPublicDocScenario(t *testing.T) {
+	for _, mode := range []Mode{ModeVulnerable, ModeFixed} {
+		srv, app := newServer(t, mode)
+		id := app.Answer().Docs[0].ID
+
+		resp, err := http.Get(srv.URL + "/api/public/docs/" + id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		want := http.StatusOK
+		if mode == ModeFixed {
+			want = http.StatusUnauthorized
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("mode %s: got %d, want %d", mode, resp.StatusCode, want)
+		}
+		if mode == ModeVulnerable {
+			var body map[string]string
+			json.NewDecoder(resp.Body).Decode(&body)
+			if body["id"] != id || body["owner_id"] == "" {
+				t.Fatalf("body %+v", body)
+			}
+		}
+	}
+}
+
+func TestDebugHeaderOnlyInVulnerableMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode Mode
+		want string
+	}{{ModeVulnerable, "labapp-internal"}, {ModeFixed, ""}} {
+		srv, _ := newServer(t, tc.mode)
+		resp, err := http.Get(srv.URL + "/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := resp.Header.Get("X-Debug-Backend"); got != tc.want {
+			t.Errorf("mode %s: X-Debug-Backend=%q, want %q", tc.mode, got, tc.want)
+		}
 	}
 }

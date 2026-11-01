@@ -20,7 +20,7 @@ func confirmedSnapshot() state.Snapshot {
 			{ID: "V-0001", HypothesisID: "H-1", Outcome: model.OutcomeInconclusive, RuleID: "doc-cross-read-v1", Reasons: []string{"no cross-account read attempted yet"}},
 			{ID: "V-0002", HypothesisID: "H-1", Outcome: model.OutcomeConfirmed, RuleID: "doc-cross-read-v1", BaselineIDs: []string{"E-1"}, ComparisonIDs: []string{"E-2", "E-3"}, Reasons: []string{"A read B's document"}},
 		},
-		Findings: []model.Finding{{ID: "F-0001", HypothesisID: "H-1", Title: "cross-account read", Impact: "A read B's document", VerificationID: "V-0002", EvidenceIDs: []string{"E-1", "E-2", "E-3"}, Limitations: []string{"only one document tested"}}},
+		Findings: []model.Finding{{ID: "F-0001", HypothesisID: "H-1", Title: "cross-account read", Impact: "A read B's document", Severity: model.SeverityHigh, VerificationID: "V-0002", EvidenceIDs: []string{"E-1", "E-2", "E-3"}, Limitations: []string{"only one document tested"}}},
 	}
 }
 
@@ -91,7 +91,7 @@ func TestBuildIsDeterministic(t *testing.T) {
 
 func TestMarkdownTracesToIDs(t *testing.T) {
 	md := Markdown(Build(confirmedSnapshot(), fixedNow))
-	for _, want := range []string{"F-0001", "V-0002", "E-1", "E-2", "E-3", "doc-cross-read-v1", "H-1", "run-1"} {
+	for _, want := range []string{"F-0001", "V-0002", "E-1", "E-2", "E-3", "doc-cross-read-v1", "H-1", "run-1", "HIGH"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q", want)
 		}

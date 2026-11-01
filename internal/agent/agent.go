@@ -37,6 +37,16 @@ const (
 	// PrimaryHypothesis is seeded by the system; the verifier rule applies to it.
 	PrimaryHypothesis = "H-1"
 	primaryClaim      = "One test account can read a document owned by the other test account (missing object-level access control)."
+
+	// M6a side hypotheses: seeded like PrimaryHypothesis, checked every cycle,
+	// but confirming or rejecting one of these never stops the run -- only
+	// PrimaryHypothesis drives the overall stop condition.
+	HypPrivesc   = "H-PRIVESC"
+	privescClaim = "An account without the admin role can reach an admin-only endpoint's data."
+	HypUnauth    = "H-UNAUTH"
+	unauthClaim  = "A resource that should require login is reachable with no session at all."
+	HypPassive   = "H-PASSIVE"
+	passiveClaim = "A response exposes internal information (debug header or info-disclosure pattern)."
 )
 
 type Deps struct {
@@ -65,13 +75,16 @@ type Agent struct {
 	cycle  int
 	models int
 
-	records  []verifier.Record
-	evidence map[string]struct{}
-	obsByID  map[string]model.Observation
-	hypByID  map[string]int // index in snap.Hypotheses
-	actionID map[string]bool
-	execs    map[string]int // request key -> executions
-	seq      struct{ dec, ver, find int }
+	records          []verifier.Record
+	adminRecords     []verifier.AdminRecord
+	rawEvidence      []model.Evidence
+	publicDocChecked map[string]bool
+	evidence         map[string]struct{}
+	obsByID          map[string]model.Observation
+	hypByID          map[string]int // index in snap.Hypotheses
+	actionID         map[string]bool
+	execs            map[string]int // request key -> executions
+	seq              struct{ dec, ver, find int }
 }
 
 // stop ends the loop with a reason.
@@ -89,6 +102,7 @@ func New(d Deps) *Agent {
 	return &Agent{
 		d: d, evidence: map[string]struct{}{}, obsByID: map[string]model.Observation{},
 		hypByID: map[string]int{}, actionID: map[string]bool{}, execs: map[string]int{},
+		publicDocChecked: map[string]bool{},
 	}
 }
 
@@ -120,6 +134,9 @@ func (a *Agent) Run(parent context.Context) (snap state.Snapshot, err error) {
 	}
 	a.snap = state.Snapshot{Meta: a.meta()}
 	a.addHypothesis(PrimaryHypothesis, primaryClaim)
+	a.addHypothesis(HypPrivesc, privescClaim)
+	a.addHypothesis(HypUnauth, unauthClaim)
+	a.addHypothesis(HypPassive, passiveClaim)
 
 	a.parent = parent
 	var st stop
@@ -189,6 +206,9 @@ func (a *Agent) loop(ctx context.Context) stop {
 		return *st
 	}
 	a.setStatus(PrimaryHypothesis, model.HypTesting)
+	a.setStatus(HypPrivesc, model.HypTesting)
+	a.setStatus(HypUnauth, model.HypTesting)
+	a.setStatus(HypPassive, model.HypTesting)
 	a.save(ctx)
 
 	for a.cycle = 1; ; a.cycle++ {
@@ -531,6 +551,10 @@ func (a *Agent) execute(ctx context.Context, act model.Action) (model.Observatio
 			path = u.Path
 		}
 		a.records = append(a.records, verifier.NewRecord(ev, act.TypedArgs.URL, path))
+		a.rawEvidence = append(a.rawEvidence, ev)
+		if path == "/api/admin/users" {
+			a.adminRecords = append(a.adminRecords, verifier.NewAdminRecord(ev, path))
+		}
 	}
 
 	switch {
@@ -543,18 +567,50 @@ func (a *Agent) execute(ctx context.Context, act model.Action) (model.Observatio
 		return obs, &stop{model.StopBudgetExhausted, "http request budget"}
 	case obs.ResultStatus == model.ResultFailed && strings.Contains(obs.Summary, tools.ErrLoginFailed):
 		// AC-03: no comparison can be built on a broken account session.
-		a.recordVerification(ctx, model.Verification{
+		a.recordVerification(ctx, PrimaryHypothesis, model.Verification{
 			Outcome: model.OutcomeInconclusive, RuleID: verifier.RuleID,
 			Reasons: []string{fmt.Sprintf("login failed for account %s; comparison not attempted", act.TypedArgs.AccountRef)},
 		})
 		return obs, &stop{model.StopToolError, "login failed for account " + string(act.TypedArgs.AccountRef)}
 	}
+	if st := a.maybeCheckUnauth(ctx, act, obs); st != nil {
+		return obs, st
+	}
 	return obs, nil
+}
+
+// maybeCheckUnauth is unauth-access-v1's only code-driven step (SDD §14.1):
+// when an authenticated read's response exposes a /api/public/docs/{id}
+// mirror URL, the agent -- not the Planner -- fetches it once with no
+// session at all. act.TypedArgs.AccountRef == AccountNone marks the
+// follow-up itself, so it never re-triggers another one.
+func (a *Agent) maybeCheckUnauth(ctx context.Context, act model.Action, obs model.Observation) *stop {
+	if act.TypedArgs.AccountRef == model.AccountNone {
+		return nil
+	}
+	for _, ref := range obs.ExposedRefs {
+		u, err := url.Parse(ref)
+		if err != nil || !strings.HasPrefix(u.Path, "/api/public/docs/") || a.publicDocChecked[ref] {
+			continue
+		}
+		a.publicDocChecked[ref] = true
+		anon := model.Action{
+			ID: fmt.Sprintf("anon-%d", len(a.snap.Actions)+1), Tool: model.ToolHTTPRequest, HypothesisID: HypUnauth,
+			TypedArgs:        model.HTTPArgs{Method: "GET", URL: ref, AccountRef: model.AccountNone},
+			RationaleSummary: "code-driven unauth-access-v1 check (not model-proposed)",
+		}
+		if _, st := a.execute(ctx, anon); st != nil {
+			return st
+		}
+	}
+	return nil
 }
 
 // ---- verification --------------------------------------------------------
 
-// verify runs the deterministic rule over all evidence and acts on its outcome.
+// verify runs the primary deterministic rule over all evidence and acts on
+// its outcome, then checks the M6a side rules (SDD §14.1), which never
+// drive the overall stop condition -- only PrimaryHypothesis does.
 func (a *Agent) verify(ctx context.Context) *stop {
 	v := verifier.Verify(a.records, a.d.Config.Accounts[model.AccountA].IdentityPath)
 	if a.cycle == 0 {
@@ -562,16 +618,24 @@ func (a *Agent) verify(ctx context.Context) *stop {
 		// accounts must be distinct (AC-03). Other gaps are filled by the loop.
 		for _, r := range v.Reasons {
 			if strings.Contains(r, "same identity") {
-				a.recordVerification(ctx, v)
+				a.recordVerification(ctx, PrimaryHypothesis, v)
 				return &stop{model.StopToolError, "accounts resolve to the same identity"}
 			}
 		}
 		return nil
 	}
-	a.recordVerification(ctx, v)
+	a.recordVerification(ctx, PrimaryHypothesis, v)
+	a.checkSideRules(ctx)
 	switch v.Outcome {
 	case model.OutcomeConfirmed:
-		a.confirm(ctx, v)
+		a.confirm(ctx, PrimaryHypothesis, v,
+			"A test account could read another test account's document",
+			"In the lab app, an authenticated account retrieved a document owned by a different account.",
+			[]string{
+				"Rule " + verifier.RuleID + " is specific to this synthetic practice scenario.",
+				"Only the observed document was tested; other resources were not assessed.",
+				fmt.Sprintf("Based on %d completed requests in this run.", len(a.records)),
+			})
 		return &stop{model.StopGoalVerified, "verification confirmed"}
 	case model.OutcomeRejected:
 		a.setStatus(PrimaryHypothesis, model.HypRejected)
@@ -582,17 +646,67 @@ func (a *Agent) verify(ctx context.Context) *stop {
 	return nil
 }
 
-// recordVerification appends a verification only when its content changed.
-func (a *Agent) recordVerification(ctx context.Context, v model.Verification) {
-	if n := len(a.snap.Verifications); n > 0 {
-		last := a.snap.Verifications[n-1]
+// checkSideRules evaluates the three M6a rules every cycle. Each is
+// independent: confirming or rejecting one never stops the run and never
+// affects another rule's hypothesis.
+func (a *Agent) checkSideRules(ctx context.Context) {
+	a.checkSideRule(ctx, HypPrivesc, verifier.VerifyVerticalPrivesc(a.adminRecords, model.AccountA, model.AccountB),
+		"A regular account could access the admin-only user list",
+		"In the lab app, an account without the admin role retrieved the same data an admin-only endpoint returns to an admin account.",
+		[]string{
+			"Rule " + verifier.VerticalPrivescRuleID + " is specific to this synthetic practice scenario.",
+			"Only the one admin endpoint was tested.",
+		})
+	a.checkSideRule(ctx, HypUnauth, verifier.VerifyUnauthAccess(a.records),
+		"A resource was reachable with no session at all",
+		"In the lab app, a request sent without any login session returned data that should require authentication.",
+		[]string{
+			"Rule " + verifier.UnauthAccessRuleID + " is specific to this synthetic practice scenario.",
+			"Only the one endpoint checked was tested.",
+		})
+	a.checkSideRule(ctx, HypPassive, verifier.VerifyPassiveExposure(a.rawEvidence),
+		"Responses exposed internal information",
+		"Collected responses contained a debug header or an information-disclosure pattern that should not reach a client.",
+		[]string{
+			"Rule " + verifier.PassiveExposureRuleID + " is a passive check over evidence already collected; it does not by itself indicate an exploitable vulnerability.",
+		})
+}
+
+func (a *Agent) checkSideRule(ctx context.Context, hypID string, v model.Verification, title, impact string, limitations []string) {
+	a.recordVerification(ctx, hypID, v)
+	switch v.Outcome {
+	case model.OutcomeConfirmed:
+		if a.snap.Hypotheses[a.hypByID[hypID]].Status != model.HypConfirmed {
+			a.confirm(ctx, hypID, v, title, impact, limitations)
+		}
+	case model.OutcomeRejected:
+		a.setStatus(hypID, model.HypRejected)
+		h := &a.snap.Hypotheses[a.hypByID[hypID]]
+		h.ContradictingEvidenceIDs = append([]string(nil), v.ComparisonIDs...)
+	}
+}
+
+// lastVerificationFor finds the most recent recorded Verification for hypID.
+func (a *Agent) lastVerificationFor(hypID string) model.Verification {
+	for i := len(a.snap.Verifications) - 1; i >= 0; i-- {
+		if a.snap.Verifications[i].HypothesisID == hypID {
+			return a.snap.Verifications[i]
+		}
+	}
+	return model.Verification{}
+}
+
+// recordVerification appends a verification for hypID, only when its
+// content changed from that hypothesis's own last recorded verification.
+func (a *Agent) recordVerification(ctx context.Context, hypID string, v model.Verification) {
+	if last := a.lastVerificationFor(hypID); last.ID != "" {
 		if last.Outcome == v.Outcome && strings.Join(last.Reasons, "|") == strings.Join(v.Reasons, "|") &&
 			strings.Join(last.ComparisonIDs, ",") == strings.Join(v.ComparisonIDs, ",") {
 			return
 		}
 	}
 	a.seq.ver++
-	v.ID, v.Meta, v.HypothesisID = fmt.Sprintf("V-%04d", a.seq.ver), a.meta(), PrimaryHypothesis
+	v.ID, v.Meta, v.HypothesisID = fmt.Sprintf("V-%04d", a.seq.ver), a.meta(), hypID
 	if v.BaselineIDs == nil {
 		v.BaselineIDs = []string{}
 	}
@@ -603,24 +717,19 @@ func (a *Agent) recordVerification(ctx context.Context, v model.Verification) {
 	a.event(ctx, "verification", v)
 }
 
-func (a *Agent) confirm(ctx context.Context, v model.Verification) {
-	a.setStatus(PrimaryHypothesis, model.HypConfirmed)
-	h := &a.snap.Hypotheses[a.hypByID[PrimaryHypothesis]]
+func (a *Agent) confirm(ctx context.Context, hypID string, v model.Verification, title, impact string, limitations []string) {
+	a.setStatus(hypID, model.HypConfirmed)
+	h := &a.snap.Hypotheses[a.hypByID[hypID]]
 	h.SupportingEvidenceIDs = append([]string(nil), v.ComparisonIDs...)
 
-	last := a.snap.Verifications[len(a.snap.Verifications)-1]
+	last := a.lastVerificationFor(hypID)
 	a.seq.find++
 	f := model.Finding{
-		Meta: a.meta(), ID: fmt.Sprintf("F-%04d", a.seq.find), HypothesisID: PrimaryHypothesis,
-		Title:          "A test account could read another test account's document",
-		Impact:         "In the lab app, an authenticated account retrieved a document owned by a different account.",
+		Meta: a.meta(), ID: fmt.Sprintf("F-%04d", a.seq.find), HypothesisID: hypID,
+		Title: title, Impact: impact, Severity: model.SeverityForRule[v.RuleID],
 		VerificationID: last.ID,
 		EvidenceIDs:    append(append([]string{}, v.BaselineIDs...), v.ComparisonIDs...),
-		Limitations: []string{
-			"Rule " + verifier.RuleID + " is specific to this synthetic practice scenario.",
-			"Only the observed document was tested; other resources were not assessed.",
-			fmt.Sprintf("Based on %d completed requests in this run.", len(a.records)),
-		},
+		Limitations:    limitations,
 	}
 	vm := map[string]model.Verification{}
 	for _, x := range a.snap.Verifications {

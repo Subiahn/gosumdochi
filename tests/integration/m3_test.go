@@ -45,18 +45,17 @@ func (e *env) runAgent(ctx context.Context, p planner.Planner, j judge.Judge) st
 	return snap
 }
 
+// confirmed checks only the primary (doc-cross-read-v1) hypothesis: these
+// M3 tests are specifically about that rule's AC-01/02/08/09/10 paths. M6a's
+// independent side rules (vertical-privesc-v1 etc.) may confirm or reject on
+// their own and must not affect these assertions; see m6a_test.go for them.
 func confirmed(s state.Snapshot) bool {
 	for _, v := range s.Verifications {
-		if v.Outcome == model.OutcomeConfirmed {
+		if v.HypothesisID == agent.PrimaryHypothesis && v.Outcome == model.OutcomeConfirmed {
 			return true
 		}
 	}
-	for _, h := range s.Hypotheses {
-		if h.Status == model.HypConfirmed {
-			return true
-		}
-	}
-	return len(s.Findings) > 0
+	return hypothesis(s, agent.PrimaryHypothesis).Status == model.HypConfirmed
 }
 
 func hypothesis(s state.Snapshot, id string) model.Hypothesis {
@@ -68,6 +67,24 @@ func hypothesis(s state.Snapshot, id string) model.Hypothesis {
 	return model.Hypothesis{}
 }
 
+func lastVerificationFor(s state.Snapshot, hypID string) model.Verification {
+	for i := len(s.Verifications) - 1; i >= 0; i-- {
+		if s.Verifications[i].HypothesisID == hypID {
+			return s.Verifications[i]
+		}
+	}
+	return model.Verification{}
+}
+
+func finding(s state.Snapshot, hypID string) (model.Finding, bool) {
+	for _, f := range s.Findings {
+		if f.HypothesisID == hypID {
+			return f, true
+		}
+	}
+	return model.Finding{}, false
+}
+
 // AC-01
 func TestAgentConfirmsInVulnerableMode(t *testing.T) {
 	e := newEnv(t, opts{mode: labapp.ModeVulnerable})
@@ -75,18 +92,21 @@ func TestAgentConfirmsInVulnerableMode(t *testing.T) {
 	if s.Run.Status != model.RunCompleted || s.Run.StopReason != model.StopGoalVerified {
 		t.Fatalf("run %+v", s.Run)
 	}
-	if len(s.Findings) != 1 || hypothesis(s, agent.PrimaryHypothesis).Status != model.HypConfirmed {
-		t.Fatalf("findings %d, hypothesis %+v", len(s.Findings), hypothesis(s, agent.PrimaryHypothesis))
+	if hypothesis(s, agent.PrimaryHypothesis).Status != model.HypConfirmed {
+		t.Fatalf("hypothesis %+v", hypothesis(s, agent.PrimaryHypothesis))
 	}
-	f := s.Findings[0]
-	t.Logf("confirmed after %d observations, %d decisions, %d http requests; baseline=%v comparison=%v",
-		len(s.Observations), len(s.Decisions), e.budget.Used(), s.Verifications[len(s.Verifications)-1].BaselineIDs, s.Verifications[len(s.Verifications)-1].ComparisonIDs)
+	f, ok := finding(s, agent.PrimaryHypothesis)
+	if !ok {
+		t.Fatalf("no finding for %s among %d: %+v", agent.PrimaryHypothesis, len(s.Findings), s.Findings)
+	}
 	var v model.Verification
 	for _, x := range s.Verifications {
 		if x.ID == f.VerificationID {
 			v = x
 		}
 	}
+	t.Logf("confirmed after %d observations, %d decisions, %d http requests; baseline=%v comparison=%v",
+		len(s.Observations), len(s.Decisions), e.budget.Used(), v.BaselineIDs, v.ComparisonIDs)
 	if v.Outcome != model.OutcomeConfirmed || len(v.BaselineIDs) < 4 || len(v.ComparisonIDs) < 2 {
 		t.Fatalf("verification %+v", v)
 	}
@@ -271,7 +291,7 @@ func TestStatusOnlyIsInconclusive(t *testing.T) {
 	if h := hypothesis(s, agent.PrimaryHypothesis); h.Status != model.HypInconclusive {
 		t.Fatalf("hypothesis %+v", h)
 	}
-	last := s.Verifications[len(s.Verifications)-1]
+	last := lastVerificationFor(s, agent.PrimaryHypothesis)
 	if last.Outcome != model.OutcomeInconclusive || len(last.Reasons) == 0 {
 		t.Fatalf("%+v", last)
 	}
@@ -280,11 +300,13 @@ func TestStatusOnlyIsInconclusive(t *testing.T) {
 // AC-10
 func TestRepeatedActionStops(t *testing.T) {
 	e := newEnv(t, opts{})
+	var repeatedURL string
 	same := plannerFunc(func(in planner.Input) (planner.Output, error) {
-		src := in.Observations[0] // start page, exposes the docs list
+		src := in.Observations[0] // start page, exposes a fixed set of links
+		repeatedURL = src.ExposedRefs[0]
 		return planner.Output{Candidates: []model.Action{{
 			ID: "R" + itoa(len(in.Observations)), Tool: model.ToolHTTPRequest, HypothesisID: agent.PrimaryHypothesis,
-			TypedArgs: model.HTTPArgs{Method: "GET", URL: src.ExposedRefs[0], AccountRef: "A", SourceObservationID: src.ID},
+			TypedArgs: model.HTTPArgs{Method: "GET", URL: repeatedURL, AccountRef: "A", SourceObservationID: src.ID},
 		}}}, nil
 	})
 	s := e.runAgent(context.Background(), same, judge.FirstCandidate{})
@@ -293,7 +315,7 @@ func TestRepeatedActionStops(t *testing.T) {
 	}
 	n := 0
 	for _, o := range s.Observations {
-		if strings.HasSuffix(o.URL, "/api/docs") {
+		if o.URL == repeatedURL {
 			n++
 		}
 	}

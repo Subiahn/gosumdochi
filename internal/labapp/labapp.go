@@ -32,7 +32,12 @@ type Credential struct {
 	DisplayName string
 	Username    string
 	Password    string
+	// Role is "admin" or "" (regular). Only meaningful for the
+	// vertical-privesc-v1 scenario; doc ownership ignores it.
+	Role string
 }
+
+const RoleAdmin = "admin"
 
 type Config struct {
 	Mode   Mode
@@ -142,12 +147,25 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", a.auth(a.me))
 	mux.HandleFunc("GET /api/docs", a.auth(a.listDocs))
 	mux.HandleFunc("GET /api/docs/{id}", a.auth(a.getDoc))
-	return noStore(mux)
+	mux.HandleFunc("GET /api/admin/users", a.auth(a.adminUsers))
+	mux.HandleFunc("GET /api/public/docs/{id}", a.publicDoc)
+	return noStore(a.debugHeader(mux))
 }
 
 func noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// debugHeader is the passive-exposure-v1 scenario: an internal header that
+// should never reach a client, left on in vulnerable mode only.
+func (a *App) debugHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.mode == ModeVulnerable {
+			w.Header().Set("X-Debug-Backend", "labapp-internal")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -160,7 +178,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (a *App) home(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(`<!doctype html><title>Lab Notes</title><h1>Lab Notes</h1><p>Synthetic practice app.</p><a href="/api/docs">My documents</a>`))
+	w.Write([]byte(`<!doctype html><title>Lab Notes</title><h1>Lab Notes</h1><p>Synthetic practice app.</p><a href="/api/docs">My documents</a> <a href="/api/admin/users">Admin</a>`))
 }
 
 const cookieName = "lab_session"
@@ -271,6 +289,56 @@ func (a *App) getDoc(w http.ResponseWriter, r *http.Request, u Credential) {
 	// The access-control check under test.
 	if a.mode == ModeFixed && ownerID != u.UserID {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	ownerName := ownerID
+	for _, c := range a.users {
+		if c.UserID == ownerID {
+			ownerName = c.DisplayName
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"id": id, "owner_id": ownerID, "owner_name": ownerName, "title": title, "body": body,
+		"url": "/api/public/docs/" + id, // mirrors this document with no auth required (unauth-access-v1)
+	})
+}
+
+// adminUsers is the vertical-privesc-v1 scenario: admin-only in fixed mode,
+// any logged-in user in vulnerable mode.
+func (a *App) adminUsers(w http.ResponseWriter, r *http.Request, u Credential) {
+	if a.mode == ModeFixed && u.Role != RoleAdmin {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	type item struct {
+		UserID      string `json:"user_id"`
+		DisplayName string `json:"display_name"`
+		Role        string `json:"role"`
+	}
+	out := make([]item, 0, len(a.users))
+	for _, c := range a.users {
+		out = append(out, item{UserID: c.UserID, DisplayName: c.DisplayName, Role: c.Role})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": out})
+}
+
+// publicDoc is the unauth-access-v1 scenario: it never looks at the session
+// cookie at all. Vulnerable mode serves the document regardless; fixed mode
+// always demands a login, same error shape as the authed endpoints.
+func (a *App) publicDoc(w http.ResponseWriter, r *http.Request) {
+	if a.mode == ModeFixed {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "login required"})
+		return
+	}
+	id := r.PathValue("id")
+	var ownerID, title, body string
+	err := a.db.QueryRow(`SELECT owner_id, title, body FROM documents WHERE id = ?`, id).Scan(&ownerID, &title, &body)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
 	ownerName := ownerID

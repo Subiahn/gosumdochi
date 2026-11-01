@@ -97,6 +97,11 @@ type AccountRef string
 const (
 	AccountA AccountRef = "A"
 	AccountB AccountRef = "B"
+	// AccountNone marks a request sent with no session at all (unauth-access-v1).
+	// It is never valid on a Planner-proposed candidate -- model.ValidateAction
+	// still only accepts "A"/"B" -- the agent constructs such actions directly,
+	// the same way it constructs bootstrap actions.
+	AccountNone AccountRef = ""
 )
 
 // CanTransition reports whether a hypothesis may move between statuses.

@@ -31,7 +31,8 @@ func Markdown(r Report) string {
 	} else {
 		fmt.Fprintln(&b, "## Findings")
 		for _, f := range r.Findings {
-			fmt.Fprintf(&b, "\n### %s — %s\n\n%s\n\n- verification: `%s`\n- evidence: %s\n", f.ID, f.Title, f.Impact, f.VerificationID, inlineList(f.EvidenceIDs))
+			fmt.Fprintf(&b, "\n### [%s] %s — %s\n\n%s\n\n- verification: `%s`\n- evidence: %s\n",
+				strings.ToUpper(string(f.Severity)), f.ID, f.Title, f.Impact, f.VerificationID, inlineList(f.EvidenceIDs))
 			if len(f.Limitations) > 0 {
 				fmt.Fprintf(&b, "- limitations: %s\n", strings.Join(f.Limitations, "; "))
 			}

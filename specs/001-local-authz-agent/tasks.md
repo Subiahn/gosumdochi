@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0~M5 전부 구현 및 완료됨(go test -race 통과). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6(docs/SDD.md §14, 설계만)뿐이다.
+M0~M5, M6a 전부 구현 및 완료됨(go test -race 통과). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6a의 실제 모델 재확인과 M6b(docs/SDD.md §14.6~14.7, 설계만)다.
 
 ## M0. 계약 확정
 
@@ -64,15 +64,25 @@ M0~M5 전부 구현 및 완료됨(go test -race 통과). 각 단계의 완료 �
 
 완료 기준: AC-01~12와 spec의 실험 목표를 평가하고 결과를 기록한다. 미달이면 완료로 표시하지 않는다. → 달성.
 
-## M6. 다중 규칙·탐색 (설계만, 미구현)
+## M6a. 인가 강화 + 수동 점검 (구현됨, go test -race 통과)
 
-docs/SDD.md §14에 설계를 적어 두었다. 코드는 아직 없다. M5 완료 후 순서대로 진행한다. 대상은 계속 사용자 소유 labapp이며 범위 밖 항목(SDD §1)은 유지한다.
+docs/SDD.md §14.1~14.4 설계 그대로 구현. 기존 typed_args·Action/Policy 계약은 바꾸지 않았다(model.AccountNone만 추가 — Planner가 제안 불가, agent가 code로만 사용).
 
-- [ ] labapp에 관리자 역할·전용 엔드포인트, 무인증 엔드포인트, 디버그 헤더 분기, 반사 파라미터 추가 (SDD §14.4)
-- [ ] Verifier 규칙 `unauth-access-v1` 추가
-- [ ] Verifier 규칙 `vertical-privesc-v1` 추가
-- [ ] Verifier 규칙 `passive-exposure-v1` 추가 (Finding에 severity 필드 추가 포함)
+- [x] labapp: `Credential.Role`(admin/""), `GET /api/admin/users`, `GET /api/public/docs/{id}`(무인증), `X-Debug-Backend` 헤더(vulnerable 모드) (SDD §14.3)
+- [x] `model.Finding.Severity` 필드, rule_id→severity 고정 매핑(`model.SeverityForRule`), report Markdown에 심각도 표시 (SDD §14.2)
+- [x] Verifier 규칙 `passive-exposure-v1` 추가 (internal/verifier/passive.go)
+- [x] Verifier 규칙 `vertical-privesc-v1` 추가 (internal/verifier/privesc.go; doc-cross-read-v1과 같은 대조 구조 재사용)
+- [x] Verifier 규칙 `unauth-access-v1` + agent의 code-driven 무인증 재조회 단계 (internal/verifier/unauth.go, agent.go의 `maybeCheckUnauth`; httptool에 세션 없는 `anon` 클라이언트 추가)
+
+구현 중 설계와 달라진 점: unauth-access-v1의 baseline/comparison은 URL이 아니라 **marker로 상관**시킨다 — 무인증 미러(`/api/public/docs/{id}`)는 인증 원본(`/api/docs/{id}`)과 의도적으로 다른 경로라, URL을 키로 쓰면 절대 매칭되지 않는다(처음 구현에서 실제로 걸렸던 버그).
+
+완료 기준: 세 규칙 각각 독립 fixture(internal/verifier) 및 통합 테스트(tests/integration/m6a_test.go)로 confirmed/rejected 경로 확인함, fake Planner/Judge로. 실제 qwen3:8b로 재확인은 아직 안 함(다음 단계로 남김).
+
+## M6b. 탐색·반사형 입력 (설계 방향만, 미구현)
+
+docs/SDD.md §14.6~14.7. M6a 완료 후 시작. reflected-input-v1은 Action/Policy의 파라미터 값 검사 계약을 ADR(`docs/adr/0002-...`)로 먼저 결정한 뒤 구현.
+
 - [ ] internal/crawl: 관찰에서 링크·form 수집, 중복 제거, Planner가 탐색 행동 제안
-- [ ] reflected-input-v1: Action/Policy의 파라미터 값 검사 계약을 ADR로 먼저 결정한 뒤 구현
+- [ ] reflected-input-v1: ADR 작성 → Action.typed_args에 `param_value`, Policy의 값 검사 → 규칙 구현
 
-완료 기준: 새 규칙마다 fake Planner/Judge로 독립 fixture/통합 테스트 통과, 그 다음 실제 모델로 재확인.
+완료 기준: M6a와 동일한 방식(fake 먼저, 실제 모델로 재확인).

@@ -83,7 +83,7 @@ type opts struct {
 func newEnv(t *testing.T, o opts) *env {
 	t.Helper()
 	app, err := labapp.New(labapp.Config{Mode: modeOr(o.mode), Users: []labapp.Credential{
-		{UserID: "u-a", DisplayName: "Alice", Username: userA, Password: passA},
+		{UserID: "u-a", DisplayName: "Alice", Username: userA, Password: passA, Role: labapp.RoleAdmin},
 		{UserID: "u-b", DisplayName: "Bob", Username: userB, Password: passB},
 	}})
 	if err != nil {
