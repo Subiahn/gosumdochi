@@ -71,6 +71,22 @@ LAB_A_USER=alice LAB_A_PASS=<pw> LAB_B_USER=bob LAB_B_PASS=<pw> \
 
 종료 코드: `0`=완료(발견 여부와 무관), `1`=설정·인프라 실패, `2`=예산·모델 오류 등 불완전 실행, `130`=Ctrl+C 취소. 발견 여부는 종료 코드가 아니라 `report.json`의 `findings`로 판단한다. 같은 `-run-id`를 두 번 쓰면(이전 run이 남아 있으면) `run`은 바로 실패한다 — 다른 id를 쓰거나 해당 `runs/<id>/` 디렉터리를 지운다.
 
+### Docker로 실행
+
+labapp은 항상 컨테이너로, agent는 선택적으로 컨테이너로 돌릴 수 있다(`deploy/compose.yaml`). Ollama는 Mac 호스트에서 그대로 실행한다 — 바인딩을 바꾸거나 네트워크에 노출할 필요 없음(OrbStack 기준, 아래 "알려진 한계" 참고).
+
+```bash
+cp deploy/.env.example deploy/.env   # 값 채우기 (git-ignored)
+cd deploy
+docker compose up -d labapp
+docker compose --profile agent run --rm agent plan -config /configs/lab.example.json
+docker compose --profile agent run --rm agent run  -config /configs/lab.example.json -run-id my-run-1
+# 결과는 호스트의 ../runs/my-run-1/ 에 쌓인다 (compose.yaml의 volumes)
+docker compose down
+```
+
+`configs/lab.example.json`의 `target_origin`은 서비스명 `labapp`을, `llm.base_url`은 `host.docker.internal`을 가리킨다. `lab` 네트워크 서브넷은 이 설정의 `allowed_lab_cidrs`(172.28.0.0/16)와 맞게 `compose.yaml`에서 고정해 뒀다.
+
 ## 실제 모델 평가 결과 (qwen3:8b, M5)
 
 2026-10-31, 16GB M-series Mac, host(비-Docker) 환경에서 취약/수정 모드 각 5회. `temperature=0, seed=42`로 각 모드 내 5회가 서로 결정론적으로 동일하다(같은 cycles/model_calls/http_requests).
@@ -94,5 +110,5 @@ LAB_A_USER=alice LAB_A_PASS=<pw> LAB_B_USER=bob LAB_B_PASS=<pw> \
 - **탐색 없음**: 설정에 적힌 시작 페이지·로그인·신원 경로만 관찰하고, 응답에 노출된 링크만 따라간다. 별도 크롤러는 없다(`docs/SDD.md` §14.1 설계만 존재).
 - **작은 로컬 모델은 스캐폴딩에 민감하다**: qwen3:8b(8B) 자체의 추론 능력보다, Planner/Judge에게 정확히 무엇이 필요한지(스키마의 실제 제약, Verifier의 판단 사유)를 구조화해서 보여주는지가 결과를 더 크게 갈랐다(위 "실제 모델 평가 결과" 참고). 다른 모델이나 더 복잡한 시나리오에서는 또 다른 간극이 나올 수 있다.
 - **macOS 배터리 절전**: 배터리 사용 중에는 macOS의 Sleep Service/Power Nap이 15~20분 주기로 개입해 `caffeinate -ims`로도 막히지 않는다(코드의 타임아웃 로직과는 무관; `pmset -g log`로 확인 가능). 정확한 시간 측정이 필요하면 전원을 연결하고 화면을 켠 채로 실행한다.
-- **Docker → 호스트 Ollama 경로 미확인**: 이 평가는 호스트에서 바로 실행했다. `deploy/compose.yaml`의 agent 컨테이너가 `host.docker.internal`로 호스트 Ollama에 닿는지는 아직 확인하지 않았다(M1 남은 항목).
+- **Docker 경로는 OrbStack으로만 확인함**: `deploy/compose.yaml`의 agent 컨테이너가 `host.docker.internal`로 호스트 Ollama에, `labapp`에 내부 `lab` 네트워크로 닿는 것을 OrbStack에서 확인했다(위 평가는 호스트에서 직접 실행). `lab` 네트워크 서브넷을 `configs/lab.example.json`의 `allowed_lab_cidrs`와 맞게 172.28.0.0/16으로 고정해 뒀다. Docker Desktop 등 다른 런타임에서는 호스트 네트워킹 동작이 달라 재확인이 필요할 수 있다.
 - **재개 불가**: 중단된 run을 이어서 계속 실행하는 기능은 없다. `report`로 그 시점까지의 기록만 다시 볼 수 있다.

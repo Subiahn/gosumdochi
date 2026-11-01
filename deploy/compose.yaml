@@ -31,6 +31,11 @@ services:
       - ../configs:/configs:ro
 
 networks:
+  # Pinned so configs/lab.example.json's allowed_lab_cidrs matches reality:
+  # an auto-assigned bridge subnet varies by host and would otherwise make
+  # the policy's CIDR check reject every request.
   lab:
     internal: true
+    ipam:
+      config: [{ subnet: 172.28.0.0/16 }]
   control: {}

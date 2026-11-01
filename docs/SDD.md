@@ -28,7 +28,7 @@ v0.1 범위: 단일 대상 origin, 계정 A/B, 읽기 전용 문서 API, HTTP �
 
 lab 네트워크는 internal로 정의한다. 앱 UI가 필요하면 호스트 127.0.0.1에만 선택적으로 포트를 공개한다. control은 호스트 추론 서버 연결을 위한 경로다. 이 구성은 agent의 외부 접근을 네트워크 수준에서 완전히 차단하지 않는다. v0.1은 신뢰된 실행 코드의 policy와 transport 검사로 요청 경로를 통제한다. 더 강한 egress 격리는 별도 프록시 또는 방화벽 설계가 필요하다.
 
-모델 연결용 클라이언트와 대상 HTTP 클라이언트를 분리한다. HTTP 도구에서 host.docker.internal, Ollama, 호스트 서비스에 접근할 수 없게 한다. 호스트 Ollama의 Docker 접근 설정은 실제 연결 테스트로 검증하며 LAN 공개는 피한다. Docker socket과 호스트 홈 디렉터리는 마운트하지 않는다.
+모델 연결용 클라이언트와 대상 HTTP 클라이언트를 분리한다. HTTP 도구에서 host.docker.internal, Ollama, 호스트 서비스에 접근할 수 없게 한다(Policy가 target_origin·allowed_lab_cidrs로 강제). 호스트 Ollama의 Docker 접근은 실제 연결 테스트로 검증함(2026-11-01, OrbStack): agent 컨테이너가 기본 Ollama 바인딩(127.0.0.1:11434) 그대로 `host.docker.internal`로 연결에 성공했고, Ollama를 0.0.0.0으로 재바인딩하거나 LAN에 노출할 필요가 없었다. Docker Desktop 등 다른 런타임에서는 호스트 브리지 동작이 달라 재검증이 필요할 수 있다. Docker socket과 호스트 홈 디렉터리는 마운트하지 않는다.
 
 ## 4. 핵심 실행 흐름
 

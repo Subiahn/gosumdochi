@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0~M5는 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama 경로 확인만 남았다. 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다.
+M0~M5 전부 구현 및 완료됨(go test -race 통과). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6(docs/SDD.md §14, 설계만)뿐이다.
 
 ## M0. 계약 확정
 
@@ -18,9 +18,9 @@ M0~M5는 구현됨(go test -race 통과). M1은 Docker→호스트 Ollama 경로
 - [x] 계정 A/B와 소유권·합성 marker seed
 - [x] 취약/수정 모드와 평가 정답 격리
 - [x] ARM64 Docker 빌드와 internal lab 네트워크
-- [ ] Ollama 호스트 연결은 inference 전용 경로로 검증 (경로는 대체 서버로 확인함; 호스트에서 qwen3:8b 어댑터 호출은 확인함; Docker agent 컨테이너에서 host.docker.internal 경로는 미확인)
+- [x] Ollama 호스트 연결은 inference 전용 경로로 검증 (2026-11-01, OrbStack: agent 컨테이너에서 `host.docker.internal:11434`로 호스트 Ollama 연결 확인, LAN 노출·Ollama 바인딩 변경 불필요. `labapp`은 내부 `lab` 네트워크로 `labapp:8080` 서비스명 연결. `deploy/compose.yaml`의 `lab` 네트워크 서브넷을 172.28.0.0/16으로 고정해 `configs/lab.example.json`의 `allowed_lab_cidrs`와 맞춤 — 전엔 호스트마다 랜덤 서브넷이라 안 맞았음)
 
-완료 기준: 수동 요청으로 취약 모드 교차 접근과 수정 모드 차단을 각각 확인한다.
+완료 기준: 수동 요청으로 취약 모드 교차 접근과 수정 모드 차단을 각각 확인한다. → M0~M5 평가(README)로 이미 양쪽 모드를 확인했고, 위 항목으로 Docker 경로까지 확인했으므로 M1 전체 완료.
 
 ## M2. 실행 경계와 증거
 
