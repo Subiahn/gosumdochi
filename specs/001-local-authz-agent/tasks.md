@@ -1,6 +1,6 @@
 # 구현 작업 순서
 
-M0~M5, M6a 전부 구현 및 완료됨(go test -race 통과, 실제 qwen3:8b 재확인 포함). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6b(docs/SDD.md §14.6~14.7, 설계만)다.
+M0~M5, M6a, M6b 전부 구현됨(go test -race 통과). 각 단계의 완료 기준을 통과한 뒤 다음 단계로 이동한다. 남은 것은 M6b의 실제 모델 재확인이다.
 
 ## M0. 계약 확정
 
@@ -80,11 +80,15 @@ docs/SDD.md §14.1~14.4 설계 그대로 구현. 기존 typed_args·Action/Polic
 
 실제 모델 평가 결과: 수정 모드는 3회 재현 모두 안전 — 네 가설(H-1, H-PRIVESC, H-UNAUTH, H-PASSIVE) 전부 false confirm 0건. 취약 모드는 3회 재현 모두 같은 패턴: `unauth-access-v1`(code-driven, 모델 스킬 불필요)과 `passive-exposure-v1`(디버그 헤더가 항상 응답에 있어 모델 스킬 불필요) 은 매번 confirmed. `doc-cross-read-v1`(H-1)과 `vertical-privesc-v1`은 3회 모두 inconclusive — qwen3:8b가 네 가설을 동시에 쫓는 이 멀티룰 목표 문구 하에서는 cycle budget(15) 내에 교차계정 문서 읽기나 admin API의 B계정 비교 조회까지 도달하지 못했다. M4/M5 단독 doc-cross-read-v1 평가(5/5 confirmed)와 달리, 여기서는 run이 `StopModelError`("planner output invalid after recovery")로 조기 종료되는 경우가 매번 있었다 — 원인은 인프라 오류가 아니라, 모델이 이미 2개 가설을 확인한 뒤 더 이상 생산적인 새 행동을 제안하지 못하고 invalid/repeated 후보만 반복 제출하면서 `MaxRecoveries=1` 소진으로 안전하게 멈추는 것으로 확인됨(cycle 5~9 사이, 3회 모두 재현). 안전성(수정 모드 false confirm 0건)은 핵심 속성이므로 충족; H-1/H-PRIVESC의 미확인은 모델 역량·탐색 순서의 한계로 기록하고 이후 프롬프트 개선 과제로 남긴다.
 
-## M6b. 탐색·반사형 입력 (설계 방향만, 미구현)
+## M6b. 탐색·반사형 입력 (구현됨, go test -race 통과)
 
-docs/SDD.md §14.6~14.7. M6a 완료 후 시작. reflected-input-v1은 Action/Policy의 파라미터 값 검사 계약을 ADR(`docs/adr/0002-...`)로 먼저 결정한 뒤 구현.
+docs/SDD.md §14.6~14.7. ADR-0002(`docs/adr/0002-reflected-input-param-value.md`)로 "모델은 `marker_id`(고정 목록에서 고르는 식별자)만 쓰고, 실제 페이로드 문자열은 Policy의 code 상수"라는 경계를 확정한 뒤 구현.
 
-- [ ] internal/crawl: 관찰에서 링크·form 수집, 중복 제거, Planner가 탐색 행동 제안
-- [ ] reflected-input-v1: ADR 작성 → Action.typed_args에 `param_value`, Policy의 값 검사 → 규칙 구현
+- [x] discovered_params 수집: internal/extract가 form input name·쿼리 문자열 키를 뽑아 Observation에 기록 (별도 internal/crawl 패키지는 만들지 않음 — §8의 기존 반복-행동 dedup과 Planner의 기존 exposed_refs 제안 메커니즘으로 충분했다. tasks.md/SDD §14.6에 이유 기록)
+- [x] reflected-input-v1: `model.MarkerID` enum + `model.ValidateAction`의 param_name/marker_id 검증, `policy.MarkerValue`(고정 맵, marker_id→실제 페이로드), `internal/tools/http`가 요청 직전에 값 주입, `internal/verifier/reflected.go`(confirmed: xss-* 마커 그대로 반사 또는 sqli-* 응답에 DB 오류 패턴)
+- [x] labapp: `GET /api/search?q=` (vulnerable은 그대로 반사, fixed는 HTML escape), 홈페이지에 검색 폼 추가
+- [x] agent.go에 H-REFLECTED 다섯 번째 가설로 배선(MaxHypotheses 5→6으로 조정)
 
-완료 기준: M6a와 동일한 방식(fake 먼저, 실제 모델로 재확인).
+완료 기준: fake Planner/Judge로 confirmed(취약 모드)·rejected(수정 모드)·benign marker 단독 비confirm·미발견 파라미터명 거부 네 가지를 tests/integration/m6b_test.go로 확인함. 실제 qwen3:8b로도 확인함(tests/integration/m6b_live_test.go, 2026-11-07).
+
+실제 모델 평가 결과: 안전성 핵심 속성(수정 모드 false confirm 0건)은 충족. `discovered_params=[q]`가 모든 실행에서 모델에게 전달되는 것을 직접 확인했고(관찰 O-0001), 시스템 프롬프트에 "discovered_params가 보이면 다른 우선순위와 무관하게 매 턴 하나씩 끼워넣어라"는 지시까지 추가했음에도, qwen3:8b는 4회 연속 실행(수정 전 2회 + 수정 후 2회, cycles 5~11) 모두 reflected-input-v1을 단 한 번도 시도하지 않았다(H-UNAUTH·H-PASSIVE는 매번 confirmed, H-REFLECTED는 매번 inconclusive — 시도 자체가 0건). vertical-privesc-v1(M6a)보다도 약한 결과다 — privesc는 적어도 admin 링크는 발견했지만, reflected-input은 discovered_params가 명시적으로 보여도 전혀 반응하지 않았다. 프롬프트 문제가 아니라 데이터 배관이 정상임을 확인한 뒤에도 재현된 것이므로, 8B급 소형 로컬 모델의 역량 한계로 기록하고 더 이상의 프롬프트 반복은 하지 않는다(실행당 5~10분, 효과 대비 비용이 큼). 안전성은 충족했으므로 M6b는 완료로 표시한다.

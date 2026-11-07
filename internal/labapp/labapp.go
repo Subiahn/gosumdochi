@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"sync"
 
@@ -149,6 +150,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/docs/{id}", a.auth(a.getDoc))
 	mux.HandleFunc("GET /api/admin/users", a.auth(a.adminUsers))
 	mux.HandleFunc("GET /api/public/docs/{id}", a.publicDoc)
+	mux.HandleFunc("GET /api/search", a.auth(a.search))
 	return noStore(a.debugHeader(mux))
 }
 
@@ -178,7 +180,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (a *App) home(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(`<!doctype html><title>Lab Notes</title><h1>Lab Notes</h1><p>Synthetic practice app.</p><a href="/api/docs">My documents</a> <a href="/api/admin/users">Admin</a>`))
+	w.Write([]byte(`<!doctype html><title>Lab Notes</title><h1>Lab Notes</h1><p>Synthetic practice app.</p><a href="/api/docs">My documents</a> <a href="/api/admin/users">Admin</a>` +
+		`<form method="GET" action="/api/search"><input name="q" type="text"><button type="submit">Search</button></form>`))
+}
+
+// search echoes the "q" query parameter back in the response: vulnerable
+// mode echoes it raw, fixed mode HTML-escapes it first (SDD §14.7,
+// reflected-input-v1). It performs no query against the document store.
+func (a *App) search(w http.ResponseWriter, r *http.Request, u Credential) {
+	q := r.URL.Query().Get("q")
+	echoed := q
+	if a.mode == ModeFixed {
+		echoed = html.EscapeString(q)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	// json.Encoder HTML-escapes by default (<,>,& -> < etc). That would
+	// hide the very reflection this endpoint exists to demonstrate, so it is
+	// disabled here only -- writeJSON elsewhere keeps the default.
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.Encode(map[string]string{"query": echoed, "results_count": "0"})
 }
 
 const cookieName = "lab_session"

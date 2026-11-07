@@ -22,7 +22,11 @@
               "method": { "const": "GET" },
               "url": { "type": "string", "minLength": 1 },
               "account_ref": { "enum": ["A", "B"] },
-              "source_observation_id": { "type": "string", "minLength": 1 }
+              "source_observation_id": { "type": "string", "minLength": 1 },
+              "param_name": { "type": "string" },
+              "marker_id": {
+                "enum": ["", "benign-v1", "xss-script-v1", "xss-attr-v1", "xss-svg-v1", "sqli-quote-v1", "sqli-or-v1", "sqli-comment-v1"]
+              }
             }
           },
           "hypothesis_id": { "type": "string", "minLength": 1 },

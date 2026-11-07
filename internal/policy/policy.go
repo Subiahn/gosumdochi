@@ -24,7 +24,31 @@ const (
 	CodeHeaderNotAllowed  = "header_not_allowed"
 	CodeAddressNotAllowed = "address_not_allowed"
 	CodeBudgetExhausted   = "budget_exhausted"
+	CodeMarkerNotAllowed  = "marker_not_allowed"
 )
+
+// markerValues is the fixed, non-extensible set of payloads reflected-input-v1
+// may inject (ADR-0002). The model only ever picks an id from
+// model.KnownMarkerIDs; this map is the only place the literal strings exist,
+// and it cannot be extended by config or by anything the model sends.
+// No DML/DDL keyword appears in any value: these probe for reflection and
+// for a surfaced error, not for a destructive query.
+var markerValues = map[model.MarkerID]string{
+	model.MarkerBenign:      "gsdq-marker-7f3a21",
+	model.MarkerXSSScript:   "<script>alert(1)</script>",
+	model.MarkerXSSAttr:     `"><img src=x onerror=1>`,
+	model.MarkerXSSSVG:      "'><svg onload=1>",
+	model.MarkerSQLiQuote:   "'",
+	model.MarkerSQLiOr:      "' OR '1'='1",
+	model.MarkerSQLiComment: "' --",
+}
+
+// MarkerValue resolves a model-chosen marker id to its literal payload. It is
+// the only function that may produce that literal string.
+func MarkerValue(id model.MarkerID) (string, bool) {
+	v, ok := markerValues[id]
+	return v, ok
+}
 
 // DeniedError is returned for every policy refusal. Nothing was sent.
 type DeniedError struct {
@@ -96,6 +120,14 @@ func (p *Policy) CheckAction(a model.Action) error {
 	for k := range a.TypedArgs.Headers {
 		if !allowedHeaders[textprotoCanonical(k)] {
 			return denied(CodeHeaderNotAllowed, "header %q", k)
+		}
+	}
+	if a.TypedArgs.MarkerID != "" || a.TypedArgs.ParamName != "" {
+		if a.TypedArgs.ParamName == "" {
+			return denied(CodeMarkerNotAllowed, "marker_id without param_name")
+		}
+		if _, ok := markerValues[a.TypedArgs.MarkerID]; !ok {
+			return denied(CodeMarkerNotAllowed, "unknown marker_id %q", a.TypedArgs.MarkerID)
 		}
 	}
 	return p.CheckURL(a.TypedArgs.URL)

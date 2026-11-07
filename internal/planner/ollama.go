@@ -47,10 +47,25 @@ Rules:
   itself, if you have not already done both for that account -- this is the
   only way to learn that account's own marker, without which a later
   cross-account read of the same item cannot be told apart from a session
-  mix-up; (2) only once BOTH accounts have done (1), read a resource that
-  belongs to one account while authenticated as the OTHER account; (3) one
-  independent repeat of a successful cross-account read, to rule out a
-  fluke.
+  mix-up; (2) once BOTH accounts have done (1), read a resource that belongs
+  to one account while authenticated as the OTHER account; (3) as soon as
+  ANY observation lists a non-empty "discovered_params" and you have not
+  yet tried every marker_id in the schema's enum against it for hypothesis
+  "H-REFLECTED", include ONE such untried candidate every turn alongside
+  whatever else you propose -- do not wait for (1)/(2) to finish first, and
+  do not let H-REFLECTED starve just because the cross-account check above
+  is more familiar; (4) one independent repeat of a successful
+  cross-account read, to rule out a fluke.
+- An observation may list "discovered_params": parameter names a form or
+  query string on that page actually uses. To test hypothesis
+  "H-REFLECTED" (reflected input / XSS / SQLi), set "typed_args.param_name"
+  to one of those EXACT names and "typed_args.marker_id" to one value from
+  the marker_id enum in the schema. Never put a literal payload string
+  anywhere -- "marker_id" is the only thing you choose; the actual value
+  sent is decided entirely by code. If "discovered_params" is empty or
+  absent for every observation you have, propose nothing for H-REFLECTED.
+  Each marker_id only needs to be tried once per parameter; once you have
+  tried all of them for a parameter, stop proposing more for it.
 - You may suggest new hypotheses in "hypothesis_proposals" (short unique id,
   one-sentence claim). This is optional.
 - "candidates" has a hard limit for this turn, stated in the prompt below as
@@ -125,13 +140,14 @@ func (p *OllamaPlanner) Plan(ctx context.Context, in Input) (Output, error) {
 }
 
 type obsView struct {
-	ID          string   `json:"id"`
-	Account     string   `json:"account_ref,omitempty"`
-	URL         string   `json:"url,omitempty"`
-	Status      string   `json:"result_status"`
-	EvidenceIDs []string `json:"evidence_ids,omitempty"`
-	ExposedRefs []string `json:"exposed_refs,omitempty"`
-	Summary     string   `json:"summary,omitempty"`
+	ID               string   `json:"id"`
+	Account          string   `json:"account_ref,omitempty"`
+	URL              string   `json:"url,omitempty"`
+	Status           string   `json:"result_status"`
+	EvidenceIDs      []string `json:"evidence_ids,omitempty"`
+	ExposedRefs      []string `json:"exposed_refs,omitempty"`
+	DiscoveredParams []string `json:"discovered_params,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
 }
 
 type hypView struct {
@@ -149,7 +165,7 @@ type verificationView struct {
 func newObsView(o model.Observation) obsView {
 	return obsView{
 		ID: o.ID, Account: string(o.AccountRef), URL: o.URL, Status: string(o.ResultStatus),
-		EvidenceIDs: o.EvidenceIDs, ExposedRefs: o.ExposedRefs, Summary: o.Summary,
+		EvidenceIDs: o.EvidenceIDs, ExposedRefs: o.ExposedRefs, DiscoveredParams: o.DiscoveredParams, Summary: o.Summary,
 	}
 }
 

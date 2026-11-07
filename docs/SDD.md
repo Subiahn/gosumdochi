@@ -253,20 +253,26 @@ Verifier(§10)의 `doc-cross-read-v1`과 같은 자리에, 서로 독립된 규�
 
 다음 둘은 M6a에서 하지 않는다. M6a 완료 후 각각을 별도로 검토한다: 탐색(§14.6)과 반사형 입력(§14.7).
 
-### 14.6 탐색(Crawl) — M6b, 설계 방향만
+### 14.6 탐색(Crawl) — M6b, 구현됨(축소된 형태)
 
 Planner가 다음 행동을 제안하려면 먼저 앱의 표면을 알아야 한다. 현재는 start_path 응답과 로그인 이후 노출된 링크만 관찰 대상이다.
 
-- 새 컴포넌트 `internal/crawl`: 관찰된 HTML/JSON 응답에서 이미 `extract`가 뽑아낸 링크·form 액션을 큐에 쌓고, 정책이 허용하는 origin·경로 범위 안에서만 방문한다. 방문 여부는 정규화된 URL+method+account_ref로 중복 제거한다(§8 재실행 규칙과 동일한 키 사용).
-- 파라미터 수집: form의 input name, 쿼리 문자열 키를 Observation에 `discovered_params`로 기록한다(응답에서 결정론적으로 뽑은 값만; 모델이 만든 파라미터명은 쓰지 않음).
-- 탐색도 Executor를 거치는 일반 Action이다. 새 도구가 아니라 Planner가 세울 수 있는 행동 후보의 한 유형(method=GET, 목적이 탐색)으로 다룬다. 예산(§8)과 Policy(§3)는 그대로 적용된다.
-- 완료 기준: 탐색만으로 새 URL이 나오지 않으면 해당 가설은 종료하고, 발견된 전체 경로 집합을 run 메타데이터에 남긴다.
-- M6a의 세 규칙은 탐색 없이도 동작한다(관리자·무인증 엔드포인트 링크가 기존 홈/목록 응답에 노출되는 것으로 충분). 탐색은 그 이후, 더 넓은 표면이 필요해질 때 추가한다.
+- 파라미터 수집: `internal/extract`가 HTML 응답의 form input name과 href/action의 쿼리 문자열 키를 결정론적으로 뽑아 `Observation.discovered_params`에 기록한다(모델이 만든 파라미터명은 쓰지 않음). form의 action URL도 `exposed_refs`에 추가된다.
+- **설계와 달라진 점**: 별도 `internal/crawl` 패키지(큐·frontier·방문 집합을 독립 관리)는 만들지 않았다. §14.1 세 규칙과 마찬가지로, reflected-input-v1(§14.7)이 실제로 필요로 하는 것은 discovered_params뿐이었고, "URL당 방문 여부"는 이미 §8의 `requestKey`+`execs` 맵(반복 행동 방지)이 하는 일과 같아 별도 컴포넌트 없이 재사용했다. Planner는 기존 `exposed_refs` 메커니즘으로 새 URL을 자유롭게 제안할 수 있으므로, 탐색 전용 새 Action 유형이나 큐도 추가하지 않았다.
+- M6a의 세 규칙과 이 규칙은 모두 탐색 없이(홈 페이지 하나의 응답에 노출된 링크·폼만으로) 동작한다. 더 넓은 표면 탐색이 실제로 필요해지면 그때 별도 frontier 컴포넌트를 추가한다.
 
-### 14.7 반사형 입력(XSS/SQLi) — M6b, 설계 방향만, ADR 필요
+### 14.7 반사형 입력(XSS/SQLi) — M6b, 구현됨(ADR-0002 승인됨)
 
-- confirmed 조건: Planner가 제안한 입력이 Policy가 승인한 파라미터 위치(§14.6에서 수집한 discovered_params)에 들어가고, 응답에 특정 마커가 변형 없이 반사되거나(XSS) DB 오류 패턴이 나타남(SQLi 신호).
-- v0.1·M6a까지 유지해 온 "model은 URL·ID·파라미터 값을 못 만든다, Policy 이전 단계에서 거부한다"는 핵심 방어선을 **파라미터 값에 한해** 완화해야 하는 유일한 규칙이다. Policy가 파라미터 **값**을 승인 목록(고정 마커 세트, 예: 길이 제한 있는 영숫자+HTML 메타문자 하나)으로 제한하고, `Action.typed_args`에 `param_value` 같은 새 필드를 추가해 Policy가 값 자체를 검사해야 한다. method는 여전히 GET만, 저장형·2차 공격은 v0.2에도 범위 밖.
-- 이 변경은 다른 모든 규칙보다 설계 검토가 더 필요하므로, 구현 전 별도 ADR(`docs/adr/0002-...`)로 "모델이 통제된 값을 제안할 수 있는 유일한 지점"을 명시하고 승인한 뒤 진행한다.
+ADR-0002(`docs/adr/0002-reflected-input-param-value.md`)로 설계를 확정했다. v0.1·M6a까지의 "model은 URL·ID·파라미터 값을 못 만든다"는 핵심 방어선은 그대로 유지하고, 모델이 쓰는 값은 `param_value` 리터럴이 아니라 **고정된 닫힌 집합에서 고르는 `marker_id`**뿐이다(실제 문자열은 `internal/policy`가 code 상수로만 가진다). 파라미터 이름도 §14.6의 `discovered_params`에 있는 것만 허용한다(모델이 지어낼 수 없음).
+
+- `model.MarkerID` enum(`"xss-*"`/`"sqli-*"` 접두사, `"benign-v1"` 포함) + `model.KnownMarkerIDs`.
+- `model.HTTPArgs.ParamName`/`MarkerID` 추가, `model.ValidateAction`이 `param_name ∈ discovered_params`와 `marker_id ∈ KnownMarkerIDs`를 검증.
+- `policy.MarkerValue`가 marker_id를 실제 페이로드 문자열로 치환(Policy의 고정 맵, config·모델 입력으로 확장 불가); `Policy.CheckAction`이 모르는 marker_id를 거부.
+- `internal/tools/http`가 요청을 보내는 마지막 순간에만 쿼리 문자열에 그 값을 주입한다.
+- confirmed 조건(`internal/verifier/reflected.go`): `xss-*` 마커의 리터럴 페이로드가 응답 본문에 변형 없이 그대로 나타나거나, 고정된 DB 오류 패턴 목록과 일치(`sqli-*`). `benign-v1`은 메타문자가 없어 그 자체로는 절대 confirm하지 않는다.
+- labapp에 `GET /api/search?q=...` 추가: vulnerable 모드는 `q`를 그대로 반사, fixed 모드는 `html.EscapeString`으로 이스케이프. 홈 페이지에 검색 폼(`input name="q"`) 추가.
+- method는 GET만, 저장형·2차 공격은 v0.2에서도 범위 밖(ADR-0002 §4 그대로).
+
+완료 기준: fake Planner/Judge로 confirmed(취약 모드)·rejected(수정 모드)·benign marker 단독으로는 confirm 안 함·미발견 파라미터명 거부, 네 가지를 통합 테스트(tests/integration/m6b_test.go)로 확인함. 실제 qwen3:8b로도 확인함(tests/integration/m6b_live_test.go, 2026-11-07) — 안전성(수정 모드 false confirm 0건)은 충족. 단, `discovered_params`가 매 턴 프롬프트에 노출되고 시스템 프롬프트에 명시적 지시까지 추가했음에도 4회 연속 실행 모두 reflected-input-v1을 전혀 시도하지 않았다(상세 경과는 tasks.md M6b 참고). 8B급 소형 로컬 모델이 모델-주도 탐색(§14.1 vertical-privesc-v1도 부분적으로 겪은 문제)에서 겪는 역량 한계로 기록하고, 이 시점에서는 재설계하지 않고 보류한다 — 다음에 다시 볼 때는 unauth-access-v1처럼 code-driven으로 바꾸는 안(ADR-0002에서 한 번 기각했던 대안)을 재검토할 수 있다.
 
 이 확장 전체는 사용자 소유의 로컬 labapp만을 대상으로 하며, 범위 밖 항목(§1)은 v0.2에서도 그대로 유지한다.

@@ -33,6 +33,10 @@ var jsonAllow = map[string]bool{
 type Result struct {
 	Summary string
 	Refs    []string // absolute URLs exposed by the response, sorted, unique
+	// Params are form input names and query string keys found in the
+	// response, sorted, unique (SDD §14.6). A later action's param_name may
+	// only name one of these.
+	Params []string
 }
 
 // Extract summarizes body. base is the request URL, used to resolve
@@ -110,13 +114,15 @@ func filter(v any, base *url.URL, refs map[string]bool) any {
 var (
 	reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	reLink  = regexp.MustCompile(`(?is)<a\s[^>]*?href\s*=\s*["']([^"']*)["']`)
-	reForm  = regexp.MustCompile(`(?is)<form\s[^>]*>`)
+	reForm  = regexp.MustCompile(`(?is)<form\b[^>]*>(.*?)</form>`)
 	reAttr  = regexp.MustCompile(`(?is)\b(action|method)\s*=\s*["']([^"']*)["']`)
+	reInput = regexp.MustCompile(`(?is)<input\b[^>]*?\bname\s*=\s*["']([^"']*)["']`)
 )
 
 func fromHTML(body []byte, base *url.URL) Result {
 	s := string(body)
 	refs := map[string]bool{}
+	params := map[string]bool{}
 	var parts []string
 	if m := reTitle.FindStringSubmatch(s); m != nil {
 		parts = append(parts, "title: "+clean(html.UnescapeString(m[1])))
@@ -124,19 +130,41 @@ func fromHTML(body []byte, base *url.URL) Result {
 	for _, m := range reLink.FindAllStringSubmatch(s, maxListItems) {
 		if abs := resolve(base, html.UnescapeString(m[1])); abs != "" {
 			refs[abs] = true
+			addQueryParams(abs, params)
 		}
 	}
-	for _, f := range reForm.FindAllString(s, 5) {
+	for _, f := range reForm.FindAllStringSubmatch(s, 5) {
 		attrs := map[string]string{}
-		for _, m := range reAttr.FindAllStringSubmatch(f, -1) {
+		for _, m := range reAttr.FindAllStringSubmatch(f[0], -1) {
 			attrs[strings.ToLower(m[1])] = clean(m[2])
+		}
+		if abs := resolve(base, html.UnescapeString(attrs["action"])); abs != "" {
+			refs[abs] = true
+			addQueryParams(abs, params)
+		}
+		for _, m := range reInput.FindAllStringSubmatch(f[1], -1) {
+			if name := clean(html.UnescapeString(m[1])); name != "" {
+				params[name] = true
+			}
 		}
 		parts = append(parts, "form: "+strings.ToUpper(attrs["method"])+" "+attrs["action"])
 	}
 	for _, l := range sortedKeys(refs) {
 		parts = append(parts, "link: "+l)
 	}
-	return Result{Summary: strings.Join(parts, "\n"), Refs: sortedKeys(refs)}
+	return Result{Summary: strings.Join(parts, "\n"), Refs: sortedKeys(refs), Params: sortedKeys(params)}
+}
+
+// addQueryParams records the query string keys of an already-resolved
+// absolute URL, if any.
+func addQueryParams(abs string, params map[string]bool) {
+	u, err := url.Parse(abs)
+	if err != nil {
+		return
+	}
+	for k := range u.Query() {
+		params[k] = true
+	}
 }
 
 // resolve returns an absolute http(s) URL, or "" for anything else.

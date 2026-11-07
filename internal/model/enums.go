@@ -104,6 +104,29 @@ const (
 	AccountNone AccountRef = ""
 )
 
+// MarkerID is the only value reflected-input-v1 lets the model pick (ADR-0002):
+// an id from this fixed, closed list, never a literal string. The literal
+// payload each id maps to is policy's exclusive domain (internal/policy),
+// never the model's and never config-extensible. The "xss-"/"sqli-" prefix
+// is load-bearing: the verifier (internal/verifier) switches on it to decide
+// which confirmed condition applies, instead of a separate category field.
+type MarkerID string
+
+const (
+	MarkerBenign      MarkerID = "benign-v1"
+	MarkerXSSScript   MarkerID = "xss-script-v1"
+	MarkerXSSAttr     MarkerID = "xss-attr-v1"
+	MarkerXSSSVG      MarkerID = "xss-svg-v1"
+	MarkerSQLiQuote   MarkerID = "sqli-quote-v1"
+	MarkerSQLiOr      MarkerID = "sqli-or-v1"
+	MarkerSQLiComment MarkerID = "sqli-comment-v1"
+)
+
+var KnownMarkerIDs = map[MarkerID]bool{
+	MarkerBenign: true, MarkerXSSScript: true, MarkerXSSAttr: true, MarkerXSSSVG: true,
+	MarkerSQLiQuote: true, MarkerSQLiOr: true, MarkerSQLiComment: true,
+}
+
 // CanTransition reports whether a hypothesis may move between statuses.
 // Only the Verifier path may move a hypothesis to confirmed; this function
 // only checks structural legality.

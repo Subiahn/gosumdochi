@@ -103,12 +103,37 @@ func ValidateAction(a Action, refs Refs) error {
 	if !ok {
 		return &ValidationError{Code: CodeUnknownRef, Field: "typed_args.source_observation_id", Msg: "unknown observation " + args.SourceObservationID}
 	}
+	urlOK := false
 	for _, ref := range obs.ExposedRefs {
 		if ref == args.URL {
+			urlOK = true
+			break
+		}
+	}
+	if !urlOK {
+		return &ValidationError{Code: CodeUntrustedRef, Field: "typed_args.url", Msg: "url not exposed by observation " + obs.ID}
+	}
+	if args.ParamName == "" && args.MarkerID == "" {
+		return nil
+	}
+	// reflected-input-v1 (ADR-0002): both must be present together, and both
+	// must come from a fixed, code-checked list -- never a literal the model
+	// invented.
+	if args.ParamName == "" {
+		return missing("typed_args.param_name")
+	}
+	if args.MarkerID == "" {
+		return missing("typed_args.marker_id")
+	}
+	if !KnownMarkerIDs[args.MarkerID] {
+		return enumErr("typed_args.marker_id", args.MarkerID)
+	}
+	for _, p := range obs.DiscoveredParams {
+		if p == args.ParamName {
 			return nil
 		}
 	}
-	return &ValidationError{Code: CodeUntrustedRef, Field: "typed_args.url", Msg: "url not exposed by observation " + obs.ID}
+	return &ValidationError{Code: CodeUntrustedRef, Field: "typed_args.param_name", Msg: "param not discovered by observation " + obs.ID}
 }
 
 // ValidateCandidates enforces the per-cycle candidate cap and per-item validity.

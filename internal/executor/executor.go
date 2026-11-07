@@ -114,8 +114,13 @@ func (e *Executor) summarize(obs *model.Observation, a model.Action, res *tools.
 	}
 	obs.Summary += "\n" + r.Summary
 	obs.ExposedRefs = r.Refs
+	obs.DiscoveredParams = r.Params
 }
 
 func requestLine(a model.Action) string {
-	return fmt.Sprintf("%s %s (account %s)", a.TypedArgs.Method, a.TypedArgs.URL, a.TypedArgs.AccountRef)
+	s := fmt.Sprintf("%s %s (account %s)", a.TypedArgs.Method, a.TypedArgs.URL, a.TypedArgs.AccountRef)
+	if a.TypedArgs.MarkerID != "" {
+		s += fmt.Sprintf(" [param=%s marker=%s]", a.TypedArgs.ParamName, a.TypedArgs.MarkerID)
+	}
+	return s
 }

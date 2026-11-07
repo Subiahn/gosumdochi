@@ -56,6 +56,14 @@ type HTTPArgs struct {
 	AccountRef          AccountRef        `json:"account_ref"`
 	Headers             map[string]string `json:"headers,omitempty"`
 	SourceObservationID string            `json:"source_observation_id"`
+	// ParamName and MarkerID are reflected-input-v1's only model-controlled
+	// value (ADR-0002): the model names a parameter discovered by code
+	// (ParamName, checked against the source observation's DiscoveredParams)
+	// and picks an id from the fixed MarkerID enum. Neither carries a literal
+	// payload string -- Policy resolves MarkerID to one. Both empty means an
+	// ordinary request.
+	ParamName string   `json:"param_name,omitempty"`
+	MarkerID  MarkerID `json:"marker_id,omitempty"`
 }
 
 const ToolHTTPRequest = "http_request"
@@ -81,6 +89,11 @@ type Observation struct {
 	// ExposedRefs are URLs/document IDs extracted deterministically from the
 	// response. Later actions may only target refs exposed by an observation.
 	ExposedRefs []string `json:"exposed_refs,omitempty"`
+	// DiscoveredParams are form input names and query string keys extracted
+	// deterministically from the response (SDD §14.6). A later action's
+	// typed_args.param_name may only name one of these -- never a
+	// model-invented name -- the same trust rule ExposedRefs applies to URLs.
+	DiscoveredParams []string `json:"discovered_params,omitempty"`
 	// ExtractionFailed marks an observation whose body could not be
 	// summarized; it may only serve as inconclusive evidence.
 	ExtractionFailed bool `json:"extraction_failed,omitempty"`
@@ -158,6 +171,7 @@ var SeverityForRule = map[string]Severity{
 	"unauth-access-v1":    SeverityHigh,
 	"vertical-privesc-v1": SeverityCritical,
 	"passive-exposure-v1": SeverityInfo,
+	"reflected-input-v1":  SeverityHigh,
 }
 
 type Finding struct {

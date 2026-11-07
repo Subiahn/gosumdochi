@@ -29,8 +29,9 @@ const (
 	MaxRecoveries = 1
 	// MaxExecutionsPerRequest allows one original run plus one verification re-run.
 	MaxExecutionsPerRequest = 2
-	// MaxHypotheses bounds model-proposed hypotheses.
-	MaxHypotheses = 5
+	// MaxHypotheses bounds model-proposed hypotheses, on top of the 5 seeded
+	// ones (PrimaryHypothesis + the four M6a/M6b side hypotheses).
+	MaxHypotheses = 6
 	// ContextObservations is how many recent observations the models see.
 	ContextObservations = 12
 
@@ -41,12 +42,14 @@ const (
 	// M6a side hypotheses: seeded like PrimaryHypothesis, checked every cycle,
 	// but confirming or rejecting one of these never stops the run -- only
 	// PrimaryHypothesis drives the overall stop condition.
-	HypPrivesc   = "H-PRIVESC"
-	privescClaim = "An account without the admin role can reach an admin-only endpoint's data."
-	HypUnauth    = "H-UNAUTH"
-	unauthClaim  = "A resource that should require login is reachable with no session at all."
-	HypPassive   = "H-PASSIVE"
-	passiveClaim = "A response exposes internal information (debug header or info-disclosure pattern)."
+	HypPrivesc     = "H-PRIVESC"
+	privescClaim   = "An account without the admin role can reach an admin-only endpoint's data."
+	HypUnauth      = "H-UNAUTH"
+	unauthClaim    = "A resource that should require login is reachable with no session at all."
+	HypPassive     = "H-PASSIVE"
+	passiveClaim   = "A response exposes internal information (debug header or info-disclosure pattern)."
+	HypReflected   = "H-REFLECTED"
+	reflectedClaim = "A parameter value is reflected unescaped, or triggers a database error (XSS/SQLi signal)."
 )
 
 type Deps struct {
@@ -78,6 +81,7 @@ type Agent struct {
 	records          []verifier.Record
 	adminRecords     []verifier.AdminRecord
 	rawEvidence      []model.Evidence
+	reflectedRecords []verifier.ReflectedRecord
 	publicDocChecked map[string]bool
 	evidence         map[string]struct{}
 	obsByID          map[string]model.Observation
@@ -137,6 +141,7 @@ func (a *Agent) Run(parent context.Context) (snap state.Snapshot, err error) {
 	a.addHypothesis(HypPrivesc, privescClaim)
 	a.addHypothesis(HypUnauth, unauthClaim)
 	a.addHypothesis(HypPassive, passiveClaim)
+	a.addHypothesis(HypReflected, reflectedClaim)
 
 	a.parent = parent
 	var st stop
@@ -209,6 +214,7 @@ func (a *Agent) loop(ctx context.Context) stop {
 	a.setStatus(HypPrivesc, model.HypTesting)
 	a.setStatus(HypUnauth, model.HypTesting)
 	a.setStatus(HypPassive, model.HypTesting)
+	a.setStatus(HypReflected, model.HypTesting)
 	a.save(ctx)
 
 	for a.cycle = 1; ; a.cycle++ {
@@ -555,6 +561,11 @@ func (a *Agent) execute(ctx context.Context, act model.Action) (model.Observatio
 		if path == "/api/admin/users" {
 			a.adminRecords = append(a.adminRecords, verifier.NewAdminRecord(ev, path))
 		}
+		if act.TypedArgs.MarkerID != "" {
+			if val, ok := policy.MarkerValue(act.TypedArgs.MarkerID); ok {
+				a.reflectedRecords = append(a.reflectedRecords, verifier.NewReflectedRecord(ev, act.TypedArgs.MarkerID, val))
+			}
+		}
 	}
 
 	switch {
@@ -669,6 +680,13 @@ func (a *Agent) checkSideRules(ctx context.Context) {
 		"Collected responses contained a debug header or an information-disclosure pattern that should not reach a client.",
 		[]string{
 			"Rule " + verifier.PassiveExposureRuleID + " is a passive check over evidence already collected; it does not by itself indicate an exploitable vulnerability.",
+		})
+	a.checkSideRule(ctx, HypReflected, verifier.VerifyReflectedInput(a.reflectedRecords),
+		"A parameter reflected an unescaped payload or surfaced a database error",
+		"A code-chosen marker value, injected into a discovered parameter, came back unescaped in the response or triggered a database error pattern.",
+		[]string{
+			"Rule " + verifier.RuleIDReflected + " only tried a fixed, closed set of markers (ADR-0002); it did not try every possible payload.",
+			"Only GET requests were tried; stored or second-order reflections were not assessed.",
 		})
 }
 
