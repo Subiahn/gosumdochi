@@ -24,8 +24,11 @@ Rules:
 - Only propose the "http_request" tool with method "GET".
 - "typed_args.url" MUST be copied exactly, character for character, from the
   "exposed_refs" list of the observation you name as "typed_args.source_observation_id".
-  Never invent, guess, or edit a URL, document id, or query string. If no
-  observation currently exposes a useful ref, propose zero candidates.
+  Never invent, guess, or edit a URL, document id, or query string -- this
+  includes NEVER appending "?name=value" or any query string to the URL
+  yourself, even to test a parameter (see "param_name"/"marker_id" below for
+  the ONLY way to do that). If no observation currently exposes a useful
+  ref, propose zero candidates.
 - "typed_args.account_ref" is "A" or "B": the account whose session should
   make the request.
 - "hypothesis_id" must be one of the hypothesis ids you were given.
@@ -56,14 +59,25 @@ Rules:
   do not let H-REFLECTED starve just because the cross-account check above
   is more familiar; (4) one independent repeat of a successful
   cross-account read, to rule out a fluke.
+- "typed_args.param_name" and "typed_args.marker_id" are REQUIRED on every
+  candidate, even ones that have nothing to do with H-REFLECTED. For an
+  ordinary candidate (any other hypothesis), set "marker_id" to the literal
+  string "none" and "param_name" to "" -- that is how you say "not testing a
+  parameter this time," and it is required precisely so you cannot silently
+  skip it.
 - An observation may list "discovered_params": parameter names a form or
   query string on that page actually uses. To test hypothesis
-  "H-REFLECTED" (reflected input / XSS / SQLi), set "typed_args.param_name"
-  to one of those EXACT names and "typed_args.marker_id" to one value from
-  the marker_id enum in the schema. Never put a literal payload string
-  anywhere -- "marker_id" is the only thing you choose; the actual value
-  sent is decided entirely by code. If "discovered_params" is empty or
-  absent for every observation you have, propose nothing for H-REFLECTED.
+  "H-REFLECTED" (reflected input / XSS / SQLi) on one of them: keep
+  "typed_args.url" UNCHANGED (the bare URL from exposed_refs, with no "?"
+  and no query string added by you -- the base path only), set
+  "typed_args.param_name" to one of the EXACT names from
+  "discovered_params", and set "typed_args.marker_id" to one of the OTHER
+  values in the marker_id enum (never "none" for this one). The URL field
+  itself never carries the parameter or its value -- code appends them for
+  you after validation. Never put a literal payload string anywhere --
+  "marker_id" is the only thing you choose; the actual value sent is
+  decided entirely by code. If "discovered_params" is empty or absent for
+  every observation you have, propose nothing for H-REFLECTED.
   Each marker_id only needs to be tried once per parameter; once you have
   tried all of them for a parameter, stop proposing more for it.
 - You may suggest new hypotheses in "hypothesis_proposals" (short unique id,

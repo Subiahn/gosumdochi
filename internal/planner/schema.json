@@ -17,7 +17,7 @@
           "typed_args": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["method", "url", "account_ref", "source_observation_id"],
+            "required": ["method", "url", "account_ref", "source_observation_id", "param_name", "marker_id"],
             "properties": {
               "method": { "const": "GET" },
               "url": { "type": "string", "minLength": 1 },
@@ -25,7 +25,7 @@
               "source_observation_id": { "type": "string", "minLength": 1 },
               "param_name": { "type": "string" },
               "marker_id": {
-                "enum": ["", "benign-v1", "xss-script-v1", "xss-attr-v1", "xss-svg-v1", "sqli-quote-v1", "sqli-or-v1", "sqli-comment-v1"]
+                "enum": ["none", "benign-v1", "xss-script-v1", "xss-attr-v1", "xss-svg-v1", "sqli-quote-v1", "sqli-or-v1", "sqli-comment-v1"]
               }
             }
           },

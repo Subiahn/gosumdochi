@@ -127,6 +127,15 @@ func TestTransitions(t *testing.T) {
 	if !CanTransition(HypTesting, HypConfirmed) || CanTransition(HypConfirmed, HypTesting) {
 		t.Error("unexpected transition rules")
 	}
+	// A side rule (reflected-input-v1 etc.) re-evaluates over growing
+	// evidence every cycle: an earlier rejection must be reopenable once a
+	// later probe confirms, via Testing (mirrors Inconclusive -> Testing).
+	if !CanTransition(HypRejected, HypTesting) {
+		t.Error("rejected must be reopenable to testing (side rules revisit rejected outcomes)")
+	}
+	if CanTransition(HypRejected, HypConfirmed) {
+		t.Error("rejected must not jump directly to confirmed")
+	}
 }
 
 // The JSON Schemas and Go enums must not drift apart.

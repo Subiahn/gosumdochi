@@ -265,14 +265,17 @@ Planner가 다음 행동을 제안하려면 먼저 앱의 표면을 알아야 �
 
 ADR-0002(`docs/adr/0002-reflected-input-param-value.md`)로 설계를 확정했다. v0.1·M6a까지의 "model은 URL·ID·파라미터 값을 못 만든다"는 핵심 방어선은 그대로 유지하고, 모델이 쓰는 값은 `param_value` 리터럴이 아니라 **고정된 닫힌 집합에서 고르는 `marker_id`**뿐이다(실제 문자열은 `internal/policy`가 code 상수로만 가진다). 파라미터 이름도 §14.6의 `discovered_params`에 있는 것만 허용한다(모델이 지어낼 수 없음).
 
-- `model.MarkerID` enum(`"xss-*"`/`"sqli-*"` 접두사, `"benign-v1"` 포함) + `model.KnownMarkerIDs`.
+- `model.MarkerID` enum(`"xss-*"`/`"sqli-*"` 접두사, `"benign-v1"`, 그리고 "이번엔 안 씀"을 뜻하는 `MarkerNone = "none"`) + `model.KnownMarkerIDs` + `model.MarkerUsed` 헬퍼(모든 호출부가 "none"인지 일관되게 체크).
 - `model.HTTPArgs.ParamName`/`MarkerID` 추가, `model.ValidateAction`이 `param_name ∈ discovered_params`와 `marker_id ∈ KnownMarkerIDs`를 검증.
 - `policy.MarkerValue`가 marker_id를 실제 페이로드 문자열로 치환(Policy의 고정 맵, config·모델 입력으로 확장 불가); `Policy.CheckAction`이 모르는 marker_id를 거부.
 - `internal/tools/http`가 요청을 보내는 마지막 순간에만 쿼리 문자열에 그 값을 주입한다.
 - confirmed 조건(`internal/verifier/reflected.go`): `xss-*` 마커의 리터럴 페이로드가 응답 본문에 변형 없이 그대로 나타나거나, 고정된 DB 오류 패턴 목록과 일치(`sqli-*`). `benign-v1`은 메타문자가 없어 그 자체로는 절대 confirm하지 않는다.
 - labapp에 `GET /api/search?q=...` 추가: vulnerable 모드는 `q`를 그대로 반사, fixed 모드는 `html.EscapeString`으로 이스케이프. 홈 페이지에 검색 폼(`input name="q"`) 추가.
 - method는 GET만, 저장형·2차 공격은 v0.2에서도 범위 밖(ADR-0002 §4 그대로).
+- `model.CanTransition`이 `HypRejected → HypTesting`을 허용한다: 이 규칙은 Verifier가 누적된 모든 probe를 매 cycle 재평가하므로(§10 doc-cross-read-v1과 달리 판정이 단조적이지 않음), 먼저 시도한 마커가 실패해 rejected로 기록된 뒤 나중 마커가 성공해 confirmed로 뒤집히는 상황이 정상이다.
 
-완료 기준: fake Planner/Judge로 confirmed(취약 모드)·rejected(수정 모드)·benign marker 단독으로는 confirm 안 함·미발견 파라미터명 거부, 네 가지를 통합 테스트(tests/integration/m6b_test.go)로 확인함. 실제 qwen3:8b로도 확인함(tests/integration/m6b_live_test.go, 2026-11-07) — 안전성(수정 모드 false confirm 0건)은 충족. 단, `discovered_params`가 매 턴 프롬프트에 노출되고 시스템 프롬프트에 명시적 지시까지 추가했음에도 4회 연속 실행 모두 reflected-input-v1을 전혀 시도하지 않았다(상세 경과는 tasks.md M6b 참고). 8B급 소형 로컬 모델이 모델-주도 탐색(§14.1 vertical-privesc-v1도 부분적으로 겪은 문제)에서 겪는 역량 한계로 기록하고, 이 시점에서는 재설계하지 않고 보류한다 — 다음에 다시 볼 때는 unauth-access-v1처럼 code-driven으로 바꾸는 안(ADR-0002에서 한 번 기각했던 대안)을 재검토할 수 있다.
+완료 기준: fake Planner/Judge로 confirmed(취약 모드)·rejected(수정 모드)·benign marker 단독으로는 confirm 안 함·미발견 파라미터명 거부·rejected→confirmed 전이가 패닉 없이 동작, 다섯 가지를 통합 테스트(tests/integration/m6b_test.go)로 확인함. 실제 qwen3:8b·qwen3:14b로도 확인함(tests/integration/m6b_live_test.go, 2026-11-07·2026-11-22).
+
+처음(2026-11-07, qwen3:8b만)에는 모델이 reflected-input-v1을 4회 연속 전혀 시도하지 않아 "소형 모델의 역량 한계"로 잘못 결론 냈었다. qwen3:14b로 바꿔도 똑같이 0회 시도였던 것이 실마리가 되어 재조사한 결과(2026-11-22), 실제 원인은 **code의 설계 버그 두 개**였다: (1) Ollama 구조화 출력이 선택적(optional) 필드의 enum 제약을 강제하지 않아 모델이 고른 `marker_id`가 매번 빈 문자열로 새 나갔던 것 — `param_name`/`marker_id`를 `required`로 바꾸고 `"none"` sentinel을 추가해 해결; (2) 그 수정 후 모델이 실제로 여러 마커를 순서대로 시도하게 되자 "안 되는 마커 먼저(rejected) → 되는 마커 나중(confirmed)" 패턴에서 `model.CanTransition`이 `rejected`를 막다른 상태로 둬서 `setStatus`가 패닉으로 전체 run을 죽이는 실제 버그가 드러났다 — 위 전이 허용으로 해결. 두 수정 후 qwen3:14b 취약 모드에서 H-PRIVESC·H-UNAUTH·H-PASSIVE·H-REFLECTED 네 가설이 모두 confirmed됐고, 수정 모드 안전성은 그대로 유지됐다. 상세 경과는 tasks.md M6b 참고.
 
 이 확장 전체는 사용자 소유의 로컬 labapp만을 대상으로 하며, 범위 밖 항목(§1)은 v0.2에서도 그대로 유지한다.

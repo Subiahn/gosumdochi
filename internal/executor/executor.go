@@ -119,7 +119,7 @@ func (e *Executor) summarize(obs *model.Observation, a model.Action, res *tools.
 
 func requestLine(a model.Action) string {
 	s := fmt.Sprintf("%s %s (account %s)", a.TypedArgs.Method, a.TypedArgs.URL, a.TypedArgs.AccountRef)
-	if a.TypedArgs.MarkerID != "" {
+	if model.MarkerUsed(a.TypedArgs.MarkerID) {
 		s += fmt.Sprintf(" [param=%s marker=%s]", a.TypedArgs.ParamName, a.TypedArgs.MarkerID)
 	}
 	return s

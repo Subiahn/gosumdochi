@@ -409,7 +409,7 @@ func (a *Agent) filter(ctx context.Context, in []model.Action) (ok []model.Actio
 			if code == "" {
 				code = model.ErrorCode("policy_" + policy.DeniedCode(err))
 			}
-			a.event(ctx, "candidate_rejected", map[string]any{"id": c.ID, "code": code})
+			a.event(ctx, "candidate_rejected", map[string]any{"id": c.ID, "code": code, "hyp": c.HypothesisID, "param": c.TypedArgs.ParamName, "marker": c.TypedArgs.MarkerID})
 			continue
 		}
 		if a.execs[requestKey(c)] >= MaxExecutionsPerRequest {
@@ -561,7 +561,7 @@ func (a *Agent) execute(ctx context.Context, act model.Action) (model.Observatio
 		if path == "/api/admin/users" {
 			a.adminRecords = append(a.adminRecords, verifier.NewAdminRecord(ev, path))
 		}
-		if act.TypedArgs.MarkerID != "" {
+		if model.MarkerUsed(act.TypedArgs.MarkerID) {
 			if val, ok := policy.MarkerValue(act.TypedArgs.MarkerID); ok {
 				a.reflectedRecords = append(a.reflectedRecords, verifier.NewReflectedRecord(ev, act.TypedArgs.MarkerID, val))
 			}
@@ -694,7 +694,16 @@ func (a *Agent) checkSideRule(ctx context.Context, hypID string, v model.Verific
 	a.recordVerification(ctx, hypID, v)
 	switch v.Outcome {
 	case model.OutcomeConfirmed:
-		if a.snap.Hypotheses[a.hypByID[hypID]].Status != model.HypConfirmed {
+		switch a.snap.Hypotheses[a.hypByID[hypID]].Status {
+		case model.HypConfirmed:
+			// already confirmed; nothing to do.
+		case model.HypRejected:
+			// A side rule's outcome is not monotonic: an earlier marker or
+			// probe that failed does not preclude a later one succeeding.
+			// Reopen through Testing (model.CanTransition) before confirming.
+			a.setStatus(hypID, model.HypTesting)
+			a.confirm(ctx, hypID, v, title, impact, limitations)
+		default:
 			a.confirm(ctx, hypID, v, title, impact, limitations)
 		}
 	case model.OutcomeRejected:

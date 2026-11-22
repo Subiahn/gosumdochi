@@ -113,17 +113,13 @@ func ValidateAction(a Action, refs Refs) error {
 	if !urlOK {
 		return &ValidationError{Code: CodeUntrustedRef, Field: "typed_args.url", Msg: "url not exposed by observation " + obs.ID}
 	}
-	if args.ParamName == "" && args.MarkerID == "" {
+	if !MarkerUsed(args.MarkerID) {
 		return nil
 	}
-	// reflected-input-v1 (ADR-0002): both must be present together, and both
-	// must come from a fixed, code-checked list -- never a literal the model
-	// invented.
+	// reflected-input-v1 (ADR-0002): param_name must come from a fixed,
+	// code-checked list -- never a literal the model invented.
 	if args.ParamName == "" {
 		return missing("typed_args.param_name")
-	}
-	if args.MarkerID == "" {
-		return missing("typed_args.marker_id")
 	}
 	if !KnownMarkerIDs[args.MarkerID] {
 		return enumErr("typed_args.marker_id", args.MarkerID)

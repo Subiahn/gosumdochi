@@ -19,7 +19,10 @@ import (
 // skill: the model must notice "discovered_params" on an observation and
 // choose a param_name + marker_id for H-REFLECTED. So this is logged, not
 // hard-required -- whether a small local model finds it on its own within
-// budget is the open question this test measures.
+// budget is the open question this test measures. (qwen3:14b confirmed it
+// after param_name/marker_id became required schema fields with an
+// explicit "none" sentinel -- see internal/planner/schema.json; qwen3:8b
+// has tried but not always succeeded within budget.)
 func TestLiveM6bVulnerableMode(t *testing.T) {
 	client, modelID := liveClient(t)
 	e := newEnv(t, opts{mode: labapp.ModeVulnerable})

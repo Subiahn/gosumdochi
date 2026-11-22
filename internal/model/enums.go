@@ -113,6 +113,12 @@ const (
 type MarkerID string
 
 const (
+	// MarkerNone is the explicit "not testing a parameter this turn" choice.
+	// It exists because Ollama's structured output only reliably enforces an
+	// enum on a REQUIRED field (empty string on an optional field was not
+	// reliably rejected in practice); making marker_id/param_name required
+	// with this sentinel, instead of letting the model omit them, fixed that.
+	MarkerNone        MarkerID = "none"
 	MarkerBenign      MarkerID = "benign-v1"
 	MarkerXSSScript   MarkerID = "xss-script-v1"
 	MarkerXSSAttr     MarkerID = "xss-attr-v1"
@@ -122,9 +128,17 @@ const (
 	MarkerSQLiComment MarkerID = "sqli-comment-v1"
 )
 
+// KnownMarkerIDs excludes MarkerNone: it is a real marker's id, not a choice
+// Policy ever resolves to a payload.
 var KnownMarkerIDs = map[MarkerID]bool{
 	MarkerBenign: true, MarkerXSSScript: true, MarkerXSSAttr: true, MarkerXSSSVG: true,
 	MarkerSQLiQuote: true, MarkerSQLiOr: true, MarkerSQLiComment: true,
+}
+
+// MarkerUsed reports whether id names an actual reflected-input-v1 probe
+// (as opposed to "" or MarkerNone, both of which mean "ordinary request").
+func MarkerUsed(id MarkerID) bool {
+	return id != "" && id != MarkerNone
 }
 
 // CanTransition reports whether a hypothesis may move between statuses.
@@ -137,6 +151,13 @@ func CanTransition(from, to HypothesisStatus) bool {
 	case HypTesting:
 		return to == HypConfirmed || to == HypRejected || to == HypInconclusive
 	case HypInconclusive:
+		return to == HypTesting
+	case HypRejected:
+		// A side rule re-evaluates over growing evidence every cycle
+		// (unlike PrimaryHypothesis, whose rejection stops the run): an
+		// earlier marker/probe failing does not preclude a later one from
+		// confirming. Reopening through Testing mirrors the Inconclusive
+		// case above.
 		return to == HypTesting
 	}
 	return false

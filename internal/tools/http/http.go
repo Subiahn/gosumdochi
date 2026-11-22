@@ -226,7 +226,7 @@ func (t *Tool) login(ctx context.Context, s *session.Session) string {
 
 func (t *Tool) get(ctx context.Context, c *nethttp.Client, a model.Action) (tools.Result, string) {
 	reqURL := a.TypedArgs.URL
-	if a.TypedArgs.MarkerID != "" {
+	if model.MarkerUsed(a.TypedArgs.MarkerID) {
 		// Policy has already confirmed marker_id is known and param_name is
 		// present (CheckAction); resolving it here, not earlier, keeps the
 		// literal payload out of every step before the wire request.

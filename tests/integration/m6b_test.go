@@ -19,8 +19,13 @@ import (
 // by the bootstrap home-page read) and tries markers in order, one per
 // cycle, until H-REFLECTED is confirmed or the markers run out.
 func reflectedPlanner() planner.Planner {
+	return markerOrderPlanner(model.MarkerXSSScript, model.MarkerSQLiQuote)
+}
+
+// markerOrderPlanner is reflectedPlanner with an explicit marker order, to
+// control which cycle confirms vs. rejects.
+func markerOrderPlanner(markers ...model.MarkerID) planner.Planner {
 	tried := map[model.MarkerID]bool{}
-	markers := []model.MarkerID{model.MarkerXSSScript, model.MarkerSQLiQuote}
 	step := 0
 	return plannerFunc(func(in planner.Input) (planner.Output, error) {
 		var searchURL, srcID string
@@ -143,5 +148,26 @@ func TestReflectedInputUndiscoveredParamRejected(t *testing.T) {
 		if a.ID == "REF-1" {
 			t.Fatal("an action with an undiscovered param_name must never reach s.Actions (rejected candidate)")
 		}
+	}
+}
+
+// Regression: a marker that fails first (sqli-quote-v1, which the lab search
+// endpoint never surfaces a DB error for) must not permanently lock
+// H-REFLECTED out of later confirming once a working marker (xss-script-v1)
+// is tried. This caught a real bug live against qwen3:14b: VerifyReflectedInput
+// re-evaluates over all accumulated probes every cycle, so an early
+// rejected outcome followed by a later confirmed one is expected, not a
+// contradiction -- but model.CanTransition did not allow HypRejected ->
+// HypConfirmed, and setStatus panicked with StopInfrastructureError the
+// moment this actually happened.
+func TestReflectedInputRejectedThenConfirmedDoesNotPanic(t *testing.T) {
+	e := newEnv(t, opts{mode: labapp.ModeVulnerable})
+	p := markerOrderPlanner(model.MarkerSQLiQuote, model.MarkerXSSScript)
+	s := e.runAgent(context.Background(), p, judge.FirstCandidate{})
+	if hypothesis(s, agent.HypReflected).Status != model.HypConfirmed {
+		t.Fatalf("hypothesis %+v", hypothesis(s, agent.HypReflected))
+	}
+	if _, ok := finding(s, agent.HypReflected); !ok {
+		t.Fatal("expected a finding once confirmed")
 	}
 }

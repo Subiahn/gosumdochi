@@ -122,7 +122,7 @@ func (p *Policy) CheckAction(a model.Action) error {
 			return denied(CodeHeaderNotAllowed, "header %q", k)
 		}
 	}
-	if a.TypedArgs.MarkerID != "" || a.TypedArgs.ParamName != "" {
+	if model.MarkerUsed(a.TypedArgs.MarkerID) {
 		if a.TypedArgs.ParamName == "" {
 			return denied(CodeMarkerNotAllowed, "marker_id without param_name")
 		}
